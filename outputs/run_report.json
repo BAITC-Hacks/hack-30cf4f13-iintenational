@@ -30,6 +30,26 @@
       3,
       2
     ],
+    "component_seed_counts": [
+      46,
+      1,
+      5,
+      4,
+      4,
+      3,
+      3,
+      3,
+      2,
+      2,
+      2,
+      2,
+      1,
+      1,
+      1,
+      1
+    ],
+    "outside_largest_component": 371,
+    "nodes_out_gt_in": 869,
     "depth4_without_out": 444,
     "seed_without_out": 31,
     "seed_absent_from_edges": 0,
@@ -120,11 +140,11 @@
   "multi_seed_clusters": 21,
   "top_nodes": 30,
   "stage_seconds": {
-    "load_validate_graph": 0.1186,
-    "metrics": 0.2073,
-    "roles": 0.0822,
-    "clustering_priority": 0.2297,
-    "exports_visualization": 0.2294
+    "load_validate_graph": 0.1429,
+    "metrics": 0.2089,
+    "roles": 0.0872,
+    "clustering_priority": 0.2333,
+    "exports_visualization": 0.2404
   },
-  "total_seconds": 0.8674
+  "total_seconds": 0.9128
 }

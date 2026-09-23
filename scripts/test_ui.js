@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require("playwright");
+const { checkBrowserTheme } = require("./check_theme");
 
 const root = path.resolve(__dirname, "..");
 const artifacts = path.join(root, "artifacts");
@@ -86,6 +87,26 @@ async function main() {
       assert.equal(await page.locator("#scope-all").getAttribute("aria-pressed"), "false");
       assert.equal(await page.locator("#source-notice strong").innerText(), data.meta.demo ? "Демонстрационные данные" : "Проверьте источник");
       assert.match(await page.locator("#source-text").innerText(), data.meta.demo ? /синтетический/i : /происхождение/i);
+    });
+
+    await check("Neutral teal palette, button hover and visible keyboard focus", async () => {
+      await checkBrowserTheme(page, "#download");
+      const selected = await page.locator('.node-row[aria-current="true"]').evaluate(element => getComputedStyle(element).backgroundColor);
+      assert.equal(selected, "rgb(234, 243, 245)");
+      const svgColors = await page.locator("#neighborhood").evaluate(element => [...element.querySelectorAll("text")].map(text => getComputedStyle(text).fill));
+      assert(svgColors.length > 0);
+      assert(svgColors.every(color => ["rgb(24, 24, 27)", "rgb(82, 82, 91)"].includes(color)), "SVG labels must use neutral text colors");
+    });
+
+    await check("Detailed priority uses exact score and honest percentile wording", async () => {
+      const node = data.nodes.find(candidate => !candidate.why) || data.nodes[0];
+      await showNode(node.id);
+      await page.locator("#details-content").getByText("Как рассчитан приоритет", { exact: true }).click();
+      const details = await page.locator("#details-content").innerText();
+      const exact = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 6, maximumFractionDigits: 6 }).format(node.priority);
+      assert(details.includes(`Точный priority_score: ${exact}`));
+      assert(details.includes("Процентиль — положение в ранжированном наборе"));
+      assert(!/выше\s+[\d.,]+%\s+узлов/i.test(details));
     });
 
     await check("Exact GID search across all nodes", async () => {

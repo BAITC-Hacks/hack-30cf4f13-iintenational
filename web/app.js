@@ -3,8 +3,12 @@
 (() => {
   const data = JSON.parse(document.getElementById("graph-data").textContent);
   const $ = id => document.getElementById(id);
+  const themeStyle = getComputedStyle(document.documentElement);
+  const theme = Object.fromEntries(["ink","muted","accent","soft","paper","line","edge"].map(key => [key, themeStyle.getPropertyValue("--"+key).trim()]));
   const fmt = new Intl.NumberFormat("ru-RU");
   const decimal = new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 1});
+  const exactScore = new Intl.NumberFormat("ru-RU", {minimumFractionDigits: 6, maximumFractionDigits: 6});
+  const percentile = new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 4});
   const generic = data.meta.profile === "generic", currency = data.meta.currency || "KZT";
   const scale = data.meta.moneyScale || 0, divisor = 10n ** BigInt(scale);
   // Денежные значения generic передаются строками целых minor units, без потери int64.
@@ -69,7 +73,7 @@
         <p>Скоры — расчётные показатели, не вероятность нарушения.</p>${boundary(n)?`<p class="boundary-note"><strong>Граница выгрузки</strong><br>Исходящие связи ${esc(n.depth)}-го колена не собраны. Нулевой out_degree не означает, что деньги остались здесь.</p>`:generic&&data.meta.coverage==="unknown"?'<p class="boundary-note">Полнота наблюдения неизвестна. Отсутствие связей не означает отсутствие переводов.</p>':""}
       </section>
       <section class="detail-section"><h3>Наблюдаемый поток</h3><div class="metric-grid"><div><span class="detail-kicker">Входящий, ${esc(currency)}</span><strong>${money(n.sumIn)}</strong></div><div><span class="detail-kicker">Исходящий, ${esc(currency)}</span><strong>${money(n.sumOut)}</strong></div><div><span class="detail-kicker">Плательщиков</span><strong>${fmt.format(n.inDegree)}</strong></div><div><span class="detail-kicker">Получателей</span><strong>${fmt.format(n.outDegree)}</strong></div></div>
-        <details><summary>Почему присвоена роль</summary><p>${esc(n.evidence)}</p></details><details><summary>Как рассчитан приоритет</summary><p>${esc(n.why || data.meta.priorityDescription || "Приоритет: 45% базового веса роли, 25% скора правила роли, 20% максимального перцентиля центральности в компоненте и 10% перцентиля оборота. Для подтверждённой границы обхода итог умножается на 0,85.")}</p><p>Центральность в компоненте: ${decimal.format(n.centrality*100)}-й перцентиль. Оборот в сети: ${decimal.format(n.turnoverPercentile*100)}-й перцентиль.</p></details>
+        <details><summary>Почему присвоена роль</summary><p>${esc(n.evidence)}</p></details><details><summary>Как рассчитан приоритет</summary><p>${esc(n.why || data.meta.priorityDescription || "Приоритет: 45% базового веса роли, 25% скора правила роли, 20% максимального процентиля центральности в компоненте и 10% процентиля оборота. Для подтверждённой границы обхода итог умножается на 0,85.")}</p><p>Точный priority_score: ${exactScore.format(n.priority)} (шкала 0–1). Центральность в компоненте: ${percentile.format(n.centrality*100)}-й процентиль. Оборот в сети: ${percentile.format(n.turnoverPercentile*100)}-й процентиль.</p><p>Процентиль — положение в ранжированном наборе по шкале 0–100; при равных значениях используется средний ранг. Это не вероятность нарушения и не доля строго уступающих узлов.</p></details>
       </section>
       <section class="detail-section"><h3>Контекст сети</h3><p>Компонента ${n.component} · Кластер ${n.cluster}<br>${count(c?.size)} узлов · seed: ${count(c?.seeds)}</p><p>${esc(c?.hypothesis || "Гипотеза о связанном сообществе узлов.")}</p><button class="cluster-link" id="show-cluster">Показать кластер ${n.cluster} ↗</button></section>`;
     $("show-cluster").addEventListener("click",() => {filterIds.forEach(id => $(id).value="all");$("cluster-filter").value=String(n.cluster);applyFilters();setScope("all");});
@@ -93,12 +97,12 @@
 
   function svgNode(n,x,y,center=false,amount=null) {
     const w=center?154:142,h=center?66:amount!==null?44:26,subtitle=center?role(n).label:amount!==null?`${compactMoney(amount)} ${currency}`:null;
-    return `<g class="svg-node" data-node-id="${esc(n.id)}" tabindex="0" role="button" aria-label="Открыть GID ${esc(n.id)}, ${esc(role(n).label)}"><title>GID ${esc(n.id)} · ${esc(role(n).label)}</title><rect x="${x-w/2}" y="${y-h/2}" width="${w}" height="${h}" rx="${center?8:5}" fill="${center?'#edf3ee':'#fff'}" stroke="${center?'#70907a':'#dce4dc'}"/><circle cx="${x-w/2+12}" cy="${subtitle?y-8:y}" r="3.5" fill="${color(n)}"/><text x="${x-w/2+22}" y="${subtitle?y-4:y+4}" fill="#25332e" font-size="${n.id.length>13?9:12}" font-weight="600">${esc(shortId(n.id))}</text>${subtitle?`<text x="${x}" y="${y+15}" text-anchor="middle" fill="#63716a" font-size="11">${esc(subtitle)}</text>`:""}</g>`;
+    return `<g class="svg-node" data-node-id="${esc(n.id)}" tabindex="0" role="button" aria-label="Открыть GID ${esc(n.id)}, ${esc(role(n).label)}"><title>GID ${esc(n.id)} · ${esc(role(n).label)}</title><rect x="${x-w/2}" y="${y-h/2}" width="${w}" height="${h}" rx="${center?8:5}" fill="${center?theme.soft:theme.paper}" stroke="${center?theme.accent:theme.line}"/><circle cx="${x-w/2+12}" cy="${subtitle?y-8:y}" r="3.5" fill="${color(n)}"/><text x="${x-w/2+22}" y="${subtitle?y-4:y+4}" fill="${theme.ink}" font-size="${n.id.length>13?9:12}" font-weight="600">${esc(shortId(n.id))}</text>${subtitle?`<text x="${x}" y="${y+15}" text-anchor="middle" fill="${theme.muted}" font-size="11">${esc(subtitle)}</text>`:""}</g>`;
   }
 
   const compactDiagram = () => $("stage").getBoundingClientRect().width < 520;
   const neighborLimit = () => compactDiagram()?4:12;
-  const arrowDefinition = '<defs><marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 8 4 L 0 8 z" fill="#799281"/></marker></defs>';
+  const arrowDefinition = `<defs><marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 8 4 L 0 8 z" fill="${theme.edge}"/></marker></defs>`;
 
   function renderCompactNeighborhood(n,ins,outs) {
     let paths="",nodes="";
@@ -106,11 +110,11 @@
       edges.forEach((e,i)=>{
         const x=edges.length===1?210:i%2?315:105,y=(isIn?87:455)+Math.floor(i/2)*62;
         const sx=isIn?x:210,sy=isIn?y+22:318,tx=isIn?210:x,ty=isIn?252:y-22;
-        paths+=`<path d="M ${sx} ${sy} C ${sx} ${(sy+ty)/2}, ${tx} ${(sy+ty)/2}, ${tx} ${ty}" stroke="#9db3a3" stroke-width="2" opacity=".7" fill="none" marker-end="url(#arrow)"/>`;
+        paths+=`<path d="M ${sx} ${sy} C ${sx} ${(sy+ty)/2}, ${tx} ${(sy+ty)/2}, ${tx} ${ty}" stroke="${theme.edge}" stroke-width="2" opacity=".7" fill="none" marker-end="url(#arrow)"/>`;
         nodes+=svgNode(byId.get(isIn?e.s:e.t),x,y,false,e.v);
       });
     }
-    return `${arrowDefinition}<text x="210" y="35" text-anchor="middle" fill="#63716a" font-size="13">Входящие · ${n.inDegree}</text><text x="210" y="397" text-anchor="middle" fill="#63716a" font-size="13">Исходящие · ${n.outDegree}</text>${paths}${nodes}${svgNode(n,210,285,true)}${!ins.length?'<text x="210" y="116" text-anchor="middle" fill="#63716a" font-size="12">Нет наблюдаемых связей</text>':""}${!outs.length?`<text x="210" y="469" text-anchor="middle" fill="#63716a" font-size="12">${boundary(n)?'Граница выгрузки':'Нет наблюдаемых связей'}</text>`:""}`;
+    return `${arrowDefinition}<text x="210" y="35" text-anchor="middle" fill="${theme.muted}" font-size="13">Входящие · ${n.inDegree}</text><text x="210" y="397" text-anchor="middle" fill="${theme.muted}" font-size="13">Исходящие · ${n.outDegree}</text>${paths}${nodes}${svgNode(n,210,285,true)}${!ins.length?`<text x="210" y="116" text-anchor="middle" fill="${theme.muted}" font-size="12">Нет наблюдаемых связей</text>`:""}${!outs.length?`<text x="210" y="469" text-anchor="middle" fill="${theme.muted}" font-size="12">${boundary(n)?'Граница выгрузки':'Нет наблюдаемых связей'}</text>`:""}`;
   }
 
   function renderNeighborhood() {
@@ -128,11 +132,11 @@
       edges.forEach((e,i) => {
         const y=yFor(i,edges.length),neighbor=byId.get(isIn?e.s:e.t);
         const start=isIn?211:477, end=isIn?323:589, sy=isIn?y:248,ey=isIn?248:y;
-        paths+=`<path d="M ${start} ${sy} C ${isIn?269:535} ${sy}, ${isIn?269:535} ${ey}, ${end} ${ey}" stroke="#a9baad" stroke-width="${1+Math.min(3,Math.log10(Number(e.v)+1)/3)}" opacity=".7" fill="none" marker-end="url(#arrow)"/><text x="${isIn?227:573}" y="${y-5}" text-anchor="${isIn?'start':'end'}" fill="#63716a" font-size="9">${compactMoney(e.v)}</text>`;
+        paths+=`<path d="M ${start} ${sy} C ${isIn?269:535} ${sy}, ${isIn?269:535} ${ey}, ${end} ${ey}" stroke="${theme.edge}" stroke-width="${1+Math.min(3,Math.log10(Number(e.v)+1)/3)}" opacity=".7" fill="none" marker-end="url(#arrow)"/><text x="${isIn?227:573}" y="${y-5}" text-anchor="${isIn?'start':'end'}" fill="${theme.muted}" font-size="9">${compactMoney(e.v)}</text>`;
         if(neighbor)nodes+=svgNode(neighbor,isIn?140:660,y);
       });
     }
-    svg.innerHTML=`${arrowDefinition}<text x="140" y="35" text-anchor="middle" fill="#63716a" font-size="11">Входящие · ${fmt.format(n.inDegree)}</text><text x="660" y="35" text-anchor="middle" fill="#63716a" font-size="11">Исходящие · ${fmt.format(n.outDegree)}</text>${paths}${nodes}${svgNode(n,400,248,true)}${!ins.length?'<text x="140" y="252" text-anchor="middle" fill="#7c8780" font-size="11">Нет наблюдаемых связей</text>':""}${!outs.length?`<text x="660" y="252" text-anchor="middle" fill="#7c8780" font-size="11">${boundary(n)?'Граница выгрузки':'Нет наблюдаемых связей'}</text>`:""}`;
+    svg.innerHTML=`${arrowDefinition}<text x="140" y="35" text-anchor="middle" fill="${theme.muted}" font-size="11">Входящие · ${fmt.format(n.inDegree)}</text><text x="660" y="35" text-anchor="middle" fill="${theme.muted}" font-size="11">Исходящие · ${fmt.format(n.outDegree)}</text>${paths}${nodes}${svgNode(n,400,248,true)}${!ins.length?`<text x="140" y="252" text-anchor="middle" fill="${theme.muted}" font-size="11">Нет наблюдаемых связей</text>`:""}${!outs.length?`<text x="660" y="252" text-anchor="middle" fill="${theme.muted}" font-size="11">${boundary(n)?'Граница выгрузки':'Нет наблюдаемых связей'}</text>`:""}`;
   }
 
   function renderLegend() {
@@ -206,7 +210,7 @@
     const sx=a.x*camera.scale+camera.x,sy=a.y*camera.scale+camera.y;
     const tx=b.x*camera.scale+camera.x,ty=b.y*camera.scale+camera.y;
     if(Math.max(sx,tx)<0||Math.min(sx,tx)>canvasWidth||Math.max(sy,ty)<0||Math.min(sy,ty)>canvasHeight)return;
-    ctx.strokeStyle=selected?"#3c6c52":"#91a497";ctx.globalAlpha=selected?.8:.25;ctx.lineWidth=selected?1.3:.65;
+    ctx.strokeStyle=selected?theme.accent:theme.edge;ctx.globalAlpha=selected?.8:.25;ctx.lineWidth=selected?1.3:.65;
     ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(tx,ty);ctx.stroke();
     const dx=tx-sx,dy=ty-sy,len=Math.hypot(dx,dy);
     if(len<6)return;
@@ -218,7 +222,7 @@
     ctx.globalAlpha=1;ctx.setLineDash([3,4]);ctx.lineWidth=1;ctx.font="10px Segoe UI, Arial";
     for(const b of componentBoxes){
       const x=(b.minX-20)*camera.scale+camera.x,y=(b.minY-20)*camera.scale+camera.y,w=(b.maxX-b.minX+40)*camera.scale,h=(b.maxY-b.minY+40)*camera.scale;
-      ctx.strokeStyle="#d5dfd4";ctx.strokeRect(x,y,w,h);ctx.fillStyle="#63716a";
+      ctx.strokeStyle=theme.line;ctx.strokeRect(x,y,w,h);ctx.fillStyle=theme.muted;
       ctx.fillText(w>100?`Компонента ${b.id}`:`№ ${b.id}`,x,y-7);
     }
     ctx.setLineDash([]);
@@ -228,8 +232,8 @@
       const x=n.x*camera.scale+camera.x,y=n.y*camera.scale+camera.y,r=Math.max(.8,Math.min(6,(3+n.priority*5)*Math.sqrt(camera.scale)));
       if(x<-10||x>canvasWidth+10||y<-10||y>canvasHeight+10)continue;
       ctx.fillStyle=color(n);ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
-      if(n.id===state.selected){ctx.strokeStyle="#213e2e";ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,r+3,0,Math.PI*2);ctx.stroke();}
-      if(camera.scale>2||n.id===state.selected){ctx.font="10px Segoe UI, Arial";ctx.fillStyle="#25332e";ctx.fillText(shortId(n.id),x+r+5,y+3);}
+      if(n.id===state.selected){ctx.strokeStyle=theme.accent;ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,r+3,0,Math.PI*2);ctx.stroke();}
+      if(camera.scale>2||n.id===state.selected){ctx.font="10px Segoe UI, Arial";ctx.fillStyle=theme.ink;ctx.fillText(shortId(n.id),x+r+5,y+3);}
     }
     $("zoom-value").textContent=`${Math.round(camera.scale/camera.fitScale*100)}%`;
   }

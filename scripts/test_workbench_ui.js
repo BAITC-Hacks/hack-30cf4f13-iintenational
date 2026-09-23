@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
 const { chromium } = require("playwright");
+const { checkBrowserTheme } = require("./check_theme");
 
 const root = path.resolve(__dirname, "..");
 const artifacts = path.join(root, "artifacts");
@@ -207,6 +208,12 @@ async function main() {
       assert.equal(await page.evaluate(() => document.activeElement.id), "main");
       await noOverflow();
       await page.screenshot({ path: path.join(artifacts, "workbench-files-desktop.png"), fullPage: true });
+    });
+
+    await check("Neutral teal palette, button hover and visible keyboard focus", async () => {
+      await checkBrowserTheme(page, "#new-import");
+      const sidebar = await page.locator(".sidebar").evaluate(element => getComputedStyle(element).backgroundColor);
+      assert.equal(sidebar, "rgb(241, 241, 243)");
     });
 
     await check("CSV mapping error is actionable and keeps focus", async () => {

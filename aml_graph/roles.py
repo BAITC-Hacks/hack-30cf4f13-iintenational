@@ -56,7 +56,8 @@ def _assign_one(
         score = 0.50 * centrality_pct + 0.25 * degree_signal + 0.25 * float(row["turnover_component_pct"])
         evidence = (
             f"Гипотеза координации: in={in_degree}, out={out_degree}; "
-            f"центральность выше {centrality_pct:.0%} узлов компоненты."
+            f"процентиль центральности компоненты {centrality_pct * 100:.2f} "
+            f"(шкала 0–100, порог ≥{COORDINATOR_CENTRALITY_PERCENTILE * 100:g})."
         )
         return "coordinator", _clip(score), evidence
 

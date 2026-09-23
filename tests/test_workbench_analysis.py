@@ -74,6 +74,9 @@ class WorkbenchAnalysisTests(unittest.TestCase):
         self.assertTrue(all(node["depth"] is None and node["seed"] is None for node in payload["nodes"]))
         self.assertEqual(payload["meta"]["currency"], "USD")
         self.assertEqual(payload["meta"]["moneyScale"], 2)
+        self.assertIn("максимальный процентиль", payload["meta"]["priorityDescription"])
+        self.assertIn("шкале 0–1", payload["meta"]["priorityDescription"])
+        self.assertNotIn("умножается", payload["meta"]["priorityDescription"])
 
     def test_equivalent_three_tables_preserve_csv_results(self):
         tx = self.transactions()
@@ -130,6 +133,7 @@ class WorkbenchAnalysisTests(unittest.TestCase):
         payload = self.payload(output)
         self.assertTrue(next(node["boundary"] for node in payload["nodes"] if node["id"] == "C"))
         self.assertFalse(next(node["boundary"] for node in payload["nodes"] if node["id"] == "B"))
+        self.assertIn("depth=2 при out_degree=0 итог умножается на 0,85", payload["meta"]["priorityDescription"])
 
     def test_depth_four_not_artificial_boundary_when_declared_depth_five(self):
         config = {**self.config, "coverage": "outward", "max_depth": 5}

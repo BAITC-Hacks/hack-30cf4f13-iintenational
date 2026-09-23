@@ -209,7 +209,13 @@ def _generic_outputs(dataset: Dataset, config: dict, graph: nx.DiGraph, display:
     for gid, node_facts in facts.items():
         node_facts["boundary"] = (
             node_facts["depth"] == boundary_depth if boundary_depth is not None and node_facts["depth"] is not None else None)
-    description = "0,45 × вес роли + 0,25 × сила правила + 0,20 × центральность + 0,10 × перцентиль оборота."
+    description = (
+        "0,45 × вес роли + 0,25 × сила правила + 0,20 × максимальный процентиль "
+        "PageRank/betweenness в компоненте + 0,10 × процентиль оборота в графе "
+        "(процентили в формуле — по шкале 0–1)."
+    )
+    if boundary_depth is not None:
+        description += f" Для depth={boundary_depth} при out_degree=0 итог умножается на 0,85."
     write_graph_view(
         output_dir / "graph_view.html", graph, frame, clusters=clusters, top_nodes=top_nodes,
         display_ids=display, node_overrides=facts, period=_period(dataset),

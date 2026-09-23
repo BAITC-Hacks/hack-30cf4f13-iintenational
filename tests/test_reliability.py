@@ -34,6 +34,51 @@ class InputValidationTests(unittest.TestCase):
         nodes, edges, transactions = tables
         return validate_data(nodes, edges, transactions, build_graph(nodes, edges))
 
+    def overflow_tables(self, *, transactions_only: bool = False) -> tuple:
+        """Keep every value in int64 while the true total increases by 2**64."""
+        nodes, edges, transactions = self.tables()
+        if transactions_only:
+            # Put four transactions on one pair, preserving every existing pair,
+            # row count and the original exact total before injecting overflow.
+            pairs = list(edges.loc[edges["n_tx"].eq(2)].head(3).itertuples())
+            target = pairs[0]
+            for source in pairs[1:]:
+                index = transactions.index[
+                    transactions["src"].eq(source.src) & transactions["dst"].eq(source.dst)
+                ][0]
+                transactions.loc[index, ["src", "dst"]] = [target.src, target.dst]
+            grouped = transactions.groupby(["src", "dst"], as_index=False).agg(
+                sum_kzt=("sum_kzt", "sum"), n_tx=("sum_kzt", "size")
+            )
+            edges = edges.drop(columns=["sum_kzt", "n_tx"]).merge(
+                grouped, on=["src", "dst"], validate="one_to_one"
+            )[self.valid[1].columns]
+            self.validate((nodes, edges, transactions))
+            affected = transactions.index[
+                transactions["src"].eq(target.src) & transactions["dst"].eq(target.dst)
+            ]
+            self.assertEqual(len(affected), 4)
+            for index in affected:
+                transactions.at[index, "sum_kzt"] = int(transactions.at[index, "sum_kzt"]) + 2**62
+        else:
+            for index, row in edges.loc[edges["n_tx"].eq(1)].head(4).iterrows():
+                edges.at[index, "sum_kzt"] = int(row.sum_kzt) + 2**62
+                affected = transactions.index[
+                    transactions["src"].eq(row.src) & transactions["dst"].eq(row.dst)
+                ][0]
+                transactions.at[affected, "sum_kzt"] = int(transactions.at[affected, "sum_kzt"]) + 2**62
+        return nodes, edges, transactions
+
+    def wrong_component_seed_tables(self) -> tuple:
+        nodes, edges, transactions = self.tables()
+        components = sorted(nx.weakly_connected_components(build_graph(nodes, edges)), key=len, reverse=True)
+        old_seed = nodes.index[nodes["gid"].isin(components[0]) & nodes["is_seed"]][0]
+        new_seed = nodes.index[nodes["gid"].isin(components[1]) & nodes["depth"].eq(1)][0]
+        nodes.loc[[old_seed, new_seed], "is_seed"] = [False, True]
+        nodes.loc[[old_seed, new_seed], "depth"] = [1, 0]
+        edges["depth"] = edges["dst"].map(nodes.set_index("gid")["depth"])
+        return nodes, edges, transactions
+
     def assert_loader_rejects(self, tables: tuple, message: str) -> None:
         with patch("starter.data_loader.pd.read_parquet", side_effect=tables):
             with self.assertRaisesRegex(DataValidationError, message):
@@ -125,6 +170,60 @@ class InputValidationTests(unittest.TestCase):
         tables[1].loc[1, "sum_kzt"] -= 1
         with self.assertRaisesRegex(DataValidationError, "агрегации transactions"):
             self.validate(tables)
+
+    def test_valid_totals_and_component_facts_are_reported(self) -> None:
+        nodes, edges, transactions = self.tables()
+        report = self.validate((nodes, edges, transactions))
+        self.assertEqual(report["sum_kzt"], sum(map(int, edges["sum_kzt"])))
+        self.assertEqual(report["sum_kzt"], sum(map(int, transactions["sum_kzt"])))
+        self.assertEqual(report["component_seed_counts"][:2], [46, 1])
+        self.assertEqual(sum(report["component_seed_counts"]), 81)
+        self.assertEqual(len(report["component_seed_counts"]), len(report["component_sizes"]))
+        self.assertEqual(report["outside_largest_component"], len(nodes) - report["component_sizes"][0])
+        self.assertEqual(report["nodes_out_gt_in"], 869)
+
+    def test_int64_overflow_in_both_money_tables_is_rejected(self) -> None:
+        tables = self.overflow_tables()
+        self.assertEqual(sum(map(int, tables[1]["sum_kzt"])), 2**64 + 365_890_012)
+        self.assertEqual(int(tables[1]["sum_kzt"].sum()), 365_890_012)
+        self.assertEqual(int(tables[2]["sum_kzt"].sum()), 365_890_012)
+        with patch.object(tables[2], "groupby", side_effect=AssertionError("Exact totals must be checked before groupby")):
+            with self.assertRaisesRegex(DataValidationError, "Оборот edges"):
+                self.validate(tables)
+
+    def test_transaction_only_overflow_is_rejected_before_groupby(self) -> None:
+        tables = self.overflow_tables(transactions_only=True)
+        edges, transactions = tables[1:]
+        self.assertEqual(sum(map(int, transactions["sum_kzt"])), 2**64 + 365_890_012)
+        self.assertEqual(sum(map(int, edges["sum_kzt"])), 365_890_012)
+        # A wrapped groupby falsely agrees with the still-valid edge table.
+        wrapped = transactions.groupby(["src", "dst"])["sum_kzt"].sum().sort_index()
+        pd.testing.assert_series_equal(wrapped, edges.set_index(["src", "dst"])["sum_kzt"].sort_index())
+        with patch.object(transactions, "groupby", side_effect=AssertionError("Exact totals must be checked before groupby")):
+            with self.assertRaisesRegex(DataValidationError, "Оборот transactions"):
+                self.validate(tables)
+
+    def test_largest_component_seed_controls_cannot_be_swapped(self) -> None:
+        tables = self.wrong_component_seed_tables()
+        self.assertEqual(int(tables[0]["is_seed"].sum()), 81)
+        self.assertEqual(tables[0].groupby("depth").size().to_dict(), {0: 81, 1: 472, 2: 462, 3: 789, 4: 444})
+        with self.assertRaisesRegex(DataValidationError, "seed.*крупнейших компонент"):
+            self.validate(tables)
+
+    def test_invalid_overflow_or_component_seeds_stop_before_analysis_and_outputs(self) -> None:
+        for label, tables in (
+            ("edge and transaction overflow", self.overflow_tables()),
+            ("transaction-only overflow", self.overflow_tables(transactions_only=True)),
+            ("component seed counts", self.wrong_component_seed_tables()),
+        ):
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "result"
+                with patch("aml_graph.pipeline.load_data", return_value=tables):
+                    with patch("aml_graph.pipeline.calculate_metrics", side_effect=AssertionError("Validation must stop before analysis")) as metrics:
+                        with self.assertRaises(DataValidationError):
+                            run_pipeline(DATA_DIR, output)
+                        metrics.assert_not_called()
+                self.assertFalse(output.exists())
 
     def test_failed_run_does_not_publish_partial_outputs(self) -> None:
         tables = self.tables()

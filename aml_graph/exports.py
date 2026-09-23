@@ -8,7 +8,7 @@ import pandas as pd
 
 from starter.export_templates import CLUSTERS_COLUMNS, NODES_ROLES_COLUMNS, TOP_NODES_COLUMNS
 
-from .config import EXPECTED_NODES, TOP_N
+from .config import EXPECTED_NODES, ROLE_BASE_PRIORITY, TOP_N
 from .roles import ROLES
 
 
@@ -25,16 +25,21 @@ def build_top_nodes(frame: pd.DataFrame, *, top_n: int = TOP_N) -> pd.DataFrame:
     ).head(top_n).copy()
     ranked.insert(0, "rank", range(1, len(ranked) + 1))
     centrality = ranked[["betweenness_component_pct", "pagerank_component_pct"]].max(axis=1)
+    # Сортировка выше использует исходный скор; объяснение показывает тот же
+    # готовый итог (включая поправки), что и экспорт, без повторного расчёта.
+    ranked["priority_score"] = ranked["priority_score"].round(6)
     ranked["why"] = [
         (
-            f"Приоритет проверки: роль {role}, сила правила {role_score:.0%}; "
-            f"центральность выше {cent:.0%} узлов своей компоненты, оборот выше {turn:.0%} узлов графа."
+            f"Приоритет проверки {priority:.6f} (0–1, с поправками; не вероятность). "
+            f"Роль {role}: вес {ROLE_BASE_PRIORITY[role]:.2f}, сила правила {role_score:.6f}. "
+            f"Процентили: центральность компоненты {cent * 100:.6f}; оборот графа {turn * 100:.6f}. "
+            "Шкала 0–100 = 100×средний ранг/N; равным значениям — средний ранг."
         )
-        for role, role_score, cent, turn in zip(
-            ranked["role"], ranked["role_score"], centrality, ranked["turnover_global_pct"], strict=True
+        for priority, role, role_score, cent, turn in zip(
+            ranked["priority_score"], ranked["role"], ranked["role_score"],
+            centrality, ranked["turnover_global_pct"], strict=True
         )
     ]
-    ranked["priority_score"] = ranked["priority_score"].round(6)
     return ranked[TOP_NODES_COLUMNS].reset_index(drop=True)
 
 
