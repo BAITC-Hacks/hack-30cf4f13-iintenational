@@ -15,7 +15,7 @@ from .exports import build_nodes_roles, build_top_nodes, validate_outputs, write
 from .metrics import calculate_metrics, candidate_summary
 from .roles import assign_roles, calculate_priority
 from .validation import validate_data
-from .visualization import write_graph_view
+from .visualization import demo_source_matches, write_graph_view
 
 
 def run_pipeline(data_dir: Path = DATA_DIR, output_dir: Path = OUTPUT_DIR) -> dict[str, object]:
@@ -76,7 +76,12 @@ def run_pipeline(data_dir: Path = DATA_DIR, output_dir: Path = OUTPUT_DIR) -> di
     top_nodes = build_top_nodes(frame)
     validate_outputs(nodes_roles, clusters, top_nodes)
     write_outputs(output_dir, nodes_roles, clusters, top_nodes)
-    write_graph_view(output_dir / "graph_view.html", graph, frame)
+    write_graph_view(
+        output_dir / "graph_view.html", graph, frame,
+        clusters=clusters, top_nodes=top_nodes,
+        is_demo=demo_source_matches(data_dir),
+        period=f"{transactions['date'].min():%d.%m.%Y} — {transactions['date'].max():%d.%m.%Y}",
+    )
     stage_times["exports_visualization"] = time.perf_counter() - marker
 
     elapsed = time.perf_counter() - started

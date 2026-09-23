@@ -51,7 +51,7 @@ class PipelineAcceptanceTests(unittest.TestCase):
         self.assertTrue(view.is_file())
         html = view.read_text(encoding="utf-8")
         self.assertIn("Content-Security-Policy", html)
-        self.assertIn("function esc(value)", html)
+        self.assertIn('id="graph-data" type="application/json"', html)
         self.assertIn("${esc(n.evidence)}", html)
 
     def test_cautious_language(self) -> None:

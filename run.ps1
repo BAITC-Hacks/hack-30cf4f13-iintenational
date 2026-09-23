@@ -5,7 +5,7 @@ if (-not (Test-Path -LiteralPath $python)) {
 }
 Push-Location $PSScriptRoot
 try {
-    & $python (Join-Path $PSScriptRoot "run_pipeline.py")
+    & $python -X utf8 (Join-Path $PSScriptRoot "run_pipeline.py")
 } finally {
     Pop-Location
 }

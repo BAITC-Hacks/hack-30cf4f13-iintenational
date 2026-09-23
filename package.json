@@ -1,0 +1,11 @@
+{
+  "name": "hackalem-graph-ui-checks",
+  "private": true,
+  "description": "Local browser checks for the standalone graph viewer",
+  "scripts": {
+    "test:ui": "node scripts/test_ui.js"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

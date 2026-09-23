@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import random
 from collections import defaultdict
 from pathlib import Path
@@ -249,6 +251,16 @@ def main() -> None:
     nodes.to_parquet(DATA_DIR / "nodes.parquet", index=False)
     edges.to_parquet(DATA_DIR / "edges.parquet", index=False)
     transactions.to_parquet(DATA_DIR / "transactions.parquet", index=False)
+    manifest = {
+        "kind": "synthetic",
+        "sha256": {
+            name: hashlib.sha256((DATA_DIR / name).read_bytes()).hexdigest()
+            for name in ("nodes.parquet", "edges.parquet", "transactions.parquet")
+        },
+    }
+    (DATA_DIR / "demo_manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
     print(
         f"Созданы nodes={len(nodes)}, edges={len(edges)}, transactions={len(transactions)}, "
         f"sum_kzt={int(edges['sum_kzt'].sum())}"

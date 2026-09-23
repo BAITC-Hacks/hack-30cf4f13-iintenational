@@ -1,0 +1,8 @@
+{
+  "kind": "synthetic",
+  "sha256": {
+    "nodes.parquet": "9fa2a9eddadea9036f851b2b41d9a0e7ad14a6bf6990c0368a5eb6d7a96cea54",
+    "edges.parquet": "1bfb1a4dcc07181d05d72b721d978c066f23456637881d40ae12bcebeaed4cd4",
+    "transactions.parquet": "574ab611d3a1ca3264845098e850897919f47c0c3fe5f7475f5fb09fad036e10"
+  }
+}

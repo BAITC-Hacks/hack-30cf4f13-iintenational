@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Потоки — рабочее пространство аналитика</title>
+  <style>/*__STYLE__*/</style>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Перейти к рабочему пространству</a>
+  <header class="topbar">
+    <a class="brand" href="#workspace" aria-label="Потоки — рабочее пространство">
+      <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#245d4d"/><path d="M8 10h8l8 12M8 22h8l8-12" stroke="#fff" stroke-width="1.7" fill="none"/><circle cx="8" cy="10" r="2" fill="#fff"/><circle cx="8" cy="22" r="2" fill="#fff"/></svg>
+      <span>Потоки<small>Анализ транзакционной сети</small></span>
+    </a>
+    <div class="top-actions"><span class="local-status"><span></span>Локальная обработка</span><button id="help-open" class="plain-button">Как работать с графом <span aria-hidden="true">↗</span></button></div>
+  </header>
+  <main id="workspace" tabindex="-1">
+    <section class="page-heading" aria-labelledby="page-title">
+      <div><div class="eyebrow">Рабочее пространство / <span id="period">Период выгрузки</span></div><h1 id="page-title">Сеть переводов</h1><p>Выберите узел и посмотрите, какие потоки определяют его приоритет.</p></div>
+      <div class="export-control"><label class="sr-only" for="export-file">Файл для выгрузки</label><select id="export-file"><option value="top_nodes.csv">Приоритеты · CSV</option><option value="nodes_roles.csv">Все роли · CSV</option><option value="clusters.csv">Кластеры · CSV</option></select><button id="download" class="primary-button"><span aria-hidden="true">↓</span> Скачать</button></div>
+    </section>
+    <div id="source-notice" class="source-notice"><strong>Источник данных</strong><span id="source-text"></span></div>
+    <section class="summary-strip" aria-label="Сводка по выгрузке">
+      <div><span>Узлы сети</span><strong id="total-nodes">—</strong><small id="seed-count"></small></div>
+      <div><span>Направленные связи</span><strong id="total-edges">—</strong><small>плательщик → получатель</small></div>
+      <div><span>Независимые компоненты</span><strong id="total-components">—</strong><small id="cluster-count"></small></div>
+      <div><span>Оборот по рёбрам</span><strong id="total-amount">—</strong><small>KZT за период выгрузки</small></div>
+    </section>
+    <section class="filters" aria-label="Поиск и фильтры">
+      <form id="search-form" role="search" novalidate><label for="gid" class="sr-only">Поиск по gid</label><span class="search-icon" aria-hidden="true">⌕</span><input id="gid" type="text" inputmode="numeric" autocomplete="off" placeholder="Найти по GID" aria-describedby="search-message"><button id="find" type="submit">Найти</button></form>
+      <div class="filter-field"><label for="role-filter">Роль</label><select id="role-filter"><option value="all">Все роли</option></select></div>
+      <div class="filter-field"><label for="component-filter">Компонента</label><select id="component-filter"><option value="all">Все компоненты</option></select></div>
+      <div class="filter-field"><label for="cluster-filter">Кластер</label><select id="cluster-filter"><option value="all">Все кластеры</option></select></div>
+      <button id="reset-filters" class="plain-button">Сбросить</button>
+    </section>
+    <p id="search-message" class="status-line" role="status" aria-live="polite">Выберите узел в очереди или введите его GID.</p>
+    <div class="workbench">
+      <section class="queue panel" aria-labelledby="queue-heading">
+        <div class="panel-heading"><div><h2 id="queue-heading">Очередь проверки</h2><p id="queue-count"></p></div><span class="sort-label" title="По убыванию расчётного приоритета">Приоритет ↓</span></div>
+        <div class="list-columns"><span>Узел / роль</span><span>Балл / 100</span></div><div id="node-list" class="node-list"></div>
+        <div class="pagination"><button id="nodes-prev" class="square-button" aria-label="Предыдущая страница узлов">←</button><span id="nodes-page"></span><button id="nodes-next" class="square-button" aria-label="Следующая страница узлов">→</button></div>
+      </section>
+      <section class="graph-panel panel" aria-labelledby="graph-heading">
+        <div class="panel-heading graph-heading"><div><h2 id="graph-heading">Связи узла</h2><p id="graph-subtitle"></p></div><div class="segmented" aria-label="Область графа"><button id="scope-node" aria-pressed="true">Связи узла</button><button id="scope-all" aria-pressed="false">Вся сеть</button></div></div>
+        <div class="graph-toolbar"><div class="view-options" aria-label="Вид связей"><button id="view-diagram" class="view-button" aria-pressed="true">Схема</button><button id="view-table" class="view-button" aria-pressed="false">Таблица связей</button></div><div class="color-option"><label for="mode">Цвет</label><select id="mode"><option value="role">По ролям</option><option value="cluster">По кластерам</option></select></div></div>
+        <div id="stage" class="graph-stage">
+          <svg id="neighborhood" viewBox="0 0 800 480" role="group" aria-label="Схема входящих и исходящих переводов выбранного узла"></svg>
+          <canvas id="network" tabindex="0" aria-label="Полная сеть. Стрелки клавиатуры перемещают схему; плюс и минус меняют масштаб. Все узлы доступны через очередь и поиск." hidden></canvas>
+          <div id="graph-empty" class="empty-state" hidden>Нет узлов по выбранным фильтрам.<br>Измените фильтр или нажмите «Сбросить».</div>
+          <div id="zoom-controls" class="zoom-controls" hidden><button id="zoom-out" class="square-button" aria-label="Уменьшить масштаб">−</button><span id="zoom-value">100%</span><button id="zoom-in" class="square-button" aria-label="Увеличить масштаб">+</button><button id="fit" class="plain-button">Вместить</button></div>
+        </div>
+        <div id="connections-view" class="connections-view" hidden><div class="table-wrap"><table><caption class="sr-only">Все наблюдаемые связи выбранного узла</caption><thead><tr><th scope="col">Узел</th><th scope="col">Направление</th><th scope="col">Сумма, KZT</th><th scope="col">Переводов</th></tr></thead><tbody id="connection-rows"></tbody></table></div><p id="connections-empty" class="empty-state" hidden>Наблюдаемых связей нет.</p><div class="pagination"><button id="edges-prev" class="square-button" aria-label="Предыдущая страница связей">←</button><span id="edges-page"></span><button id="edges-next" class="square-button" aria-label="Следующая страница связей">→</button></div></div>
+        <div class="graph-caption"><span id="graph-caption"></span><span class="direction-key"><i></i> направление перевода</span></div>
+        <div id="legend" class="legend" aria-label="Обозначения на схеме"></div>
+      </section>
+      <aside class="details panel" aria-labelledby="details-heading"><div class="panel-heading"><div><span class="eyebrow">Выбранный узел</span><h2 id="details-heading">—</h2></div><span id="depth-badge" class="depth-badge"></span></div><div id="details-content"></div></aside>
+    </div>
+    <footer class="page-footer"><span>Роли — гипотезы для проверки. Полные балансы клиентов в выгрузке не представлены.</span><span>Потоки / HackAlem</span></footer>
+  </main>
+  <dialog id="help-dialog" aria-labelledby="help-title">
+    <div class="dialog-heading"><h2 id="help-title">Как работать с сетью</h2><button id="help-close" class="square-button" aria-label="Закрыть справку">×</button></div>
+    <ol>
+      <li><strong>Начните с очереди.</strong> Узлы отсортированы по расчётному приоритету. Это показатель для сравнения, а не вероятность нарушения.</li>
+      <li><strong>Откройте узел.</strong> Слева на схеме — его плательщики, справа — получатели. На узком экране они расположены сверху и снизу. Стрелка показывает направление денег. Нажмите на соседний GID, чтобы перейти к нему.</li>
+      <li><strong>Проверьте все связи.</strong> Схема показывает до 12 крупнейших связей каждого направления, на узком экране — до четырёх. Таблица содержит все связи с точными суммами и числом переводов.</li>
+      <li><strong>Посмотрите контекст.</strong> Режим «Вся сеть» учитывает фильтры. Используйте «Вместить», кнопки масштаба или стрелки клавиатуры. Расстояния между узлами — только способ раскладки, не мера риска.</li>
+      <li><strong>Учитывайте границу.</strong> У узлов 4-го колена исходящие переводы отсутствуют из-за способа выгрузки. Это не доказывает удержание денег.</li>
+    </ol>
+    <p class="muted"><strong>Seed</strong> — стартовый узел обхода. <strong>Компонента</strong> — часть сети без связей с остальными компонентами. <strong>Кластер</strong> — сообщество, найденное внутри компоненты.</p>
+    <h3>Обозначения ролей</h3><div id="role-glossary"></div>
+    <p class="muted">Поиск по GID работает во всей выгрузке. При переходе к узлу вне фильтра ограничения автоматически сбрасываются. Выгружаемые CSV всегда содержат полные результаты расчёта, без фильтров экрана.</p>
+  </dialog>
+  <script id="graph-data" type="application/json">__DATA_JSON__</script>
+  <script>/*__SCRIPT__*/</script>
+</body>
+</html>

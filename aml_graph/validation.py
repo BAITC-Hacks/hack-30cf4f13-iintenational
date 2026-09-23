@@ -24,21 +24,42 @@ def _require(condition: bool, message: str) -> None:
         raise DataValidationError(message)
 
 
-def validate_data(
+def validate_schema(
     nodes: pd.DataFrame,
     edges: pd.DataFrame,
     transactions: pd.DataFrame,
-    graph: nx.DiGraph,
-) -> dict[str, object]:
+) -> None:
+    """Проверить исходные типы до любого потенциально потерянного приведения.
+
+    ``astype(int64)`` усекал дробные значения, а ``astype(bool)`` превращал
+    непустую строку ``"False"`` в True. Ошибки схемы должны останавливать запуск.
+    """
     required = {
         "nodes": ({"gid", "depth", "is_seed"}, nodes),
         "edges": ({"src", "dst", "sum_kzt", "n_tx", "depth"}, edges),
         "transactions": ({"src", "dst", "date", "sum_kzt"}, transactions),
     }
     for name, (columns, frame) in required.items():
+        _require(frame.columns.is_unique, f"{name}: повторяющиеся имена колонок")
         missing = columns - set(frame.columns)
         _require(not missing, f"{name}: отсутствуют колонки {sorted(missing)}")
         _require(not frame[list(columns)].isna().any().any(), f"{name}: есть пустые обязательные значения")
+        for column in columns - {"is_seed", "date"}:
+            values = frame[column]
+            _require(pd.api.types.is_integer_dtype(values.dtype), f"{name}.{column}: ожидается целочисленный тип")
+            _require(values.between(-(2**63), 2**63 - 1).all(), f"{name}.{column}: значение вне диапазона int64")
+    _require(pd.api.types.is_bool_dtype(nodes["is_seed"].dtype), "nodes.is_seed: ожидается bool (True/False)")
+    _require(pd.api.types.is_datetime64_any_dtype(transactions["date"].dtype), "transactions.date: ожидается datetime64")
+    _require(transactions["date"].dt.tz is None, "transactions.date: ожидается дата без часового пояса")
+
+
+def validate_data(
+    nodes: pd.DataFrame,
+    edges: pd.DataFrame,
+    transactions: pd.DataFrame,
+    graph: nx.DiGraph,
+) -> dict[str, object]:
+    validate_schema(nodes, edges, transactions)
 
     _require(len(nodes) == EXPECTED_NODES, f"Ожидалось {EXPECTED_NODES} узлов, получено {len(nodes)}")
     _require(len(edges) == EXPECTED_EDGES, f"Ожидалось {EXPECTED_EDGES} рёбер, получено {len(edges)}")
@@ -55,11 +76,13 @@ def validate_data(
     _require(edge_gids <= gids, f"В рёбрах есть неизвестные gid: {sorted(edge_gids - gids)[:5]}")
     _require(int(nodes["is_seed"].sum()) == EXPECTED_SEEDS, "Число seed не равно 81")
     _require(nodes["depth"].between(0, 4).all(), "depth должен быть в диапазоне 0–4")
+    _require((nodes["is_seed"] == nodes["depth"].eq(0)).all(), "is_seed должен совпадать с depth=0")
     _require((edges["depth"] == edges["dst"].map(nodes.set_index("gid")["depth"])).all(), "edges.depth не совпадает с глубиной dst")
     transaction_gids = set(transactions["src"].astype(int)) | set(transactions["dst"].astype(int))
     _require(transaction_gids <= gids, "В transactions есть неизвестные gid")
     _require(set(zip(transactions["src"].astype(int), transactions["dst"].astype(int))) == set(zip(edges["src"].astype(int), edges["dst"].astype(int))), "Пары transactions и edges отличаются")
-    _require(pd.to_datetime(transactions["date"]).between("2026-07-01", "2026-07-31").all(), "Есть transactions вне июля 2026")
+    dates = transactions["date"]
+    _require(((dates >= "2026-07-01") & (dates < "2026-08-01")).all(), "Есть transactions вне июля 2026")
     depth_counts = nodes.groupby("depth").size().astype(int).to_dict()
     _require(set(depth_counts).issubset({0, 1, 2, 3, 4}), f"Неизвестный уровень depth: {depth_counts}")
     _require(depth_counts == EXPECTED_DEPTH_COUNTS, f"Распределение depth отличается: {depth_counts}")
