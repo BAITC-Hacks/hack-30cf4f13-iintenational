@@ -137,17 +137,21 @@ async function main() {
       assert.equal(await page.locator("#gid").getAttribute("aria-invalid"), "true");
     });
 
-    await check("Role, component and cluster filters; reset", async () => {
+    await check("Role, component, depth and seed filters; reset", async () => {
       const sample = data.nodes.find((node) => node.role !== "peripheral") || data.nodes[0];
-      for (const [selector, field] of [["#role-filter", "role"], ["#component-filter", "component"], ["#cluster-filter", "cluster"]]) {
+      const filters = [["#role-filter", "role"], ["#component-filter", "component"], ["#cluster-filter", "cluster"]];
+      if (sample.depth != null) filters.push(["#depth-filter", "depth"]);
+      if (sample.seed != null) filters.push(["#seed-filter", "seed"]);
+      for (const [selector, field] of filters) {
         await page.locator("#reset-filters").click();
-        await page.locator(selector).selectOption(String(sample[field]));
+        const value = field === "seed" ? (sample.seed ? "seed" : "non-seed") : String(sample[field]);
+        await page.locator(selector).selectOption(value);
         const ids = await queueIds();
         assert(ids.length > 0);
-        assert(ids.every((id) => String(byId.get(id)[field]) === String(sample[field])), `Incorrect ${field} filter`);
+        assert(ids.every((id) => field === "seed" ? byId.get(id).seed === sample.seed : String(byId.get(id)[field]) === String(sample[field])), `Incorrect ${field} filter`);
       }
       await page.locator("#reset-filters").click();
-      for (const selector of ["#role-filter", "#component-filter", "#cluster-filter"]) {
+      for (const selector of ["#role-filter", "#component-filter", "#cluster-filter", "#depth-filter", "#seed-filter"]) {
         assert.equal(await page.locator(selector).inputValue(), "all");
       }
     });
@@ -159,8 +163,10 @@ async function main() {
       await page.locator("#role-filter").selectOption(sample.role);
       await page.locator("#component-filter").selectOption(String(sample.component));
       await page.locator("#cluster-filter").selectOption(String(sample.cluster));
+      if (sample.depth != null) await page.locator("#depth-filter").selectOption(String(sample.depth));
+      if (sample.seed != null) await page.locator("#seed-filter").selectOption(sample.seed ? "seed" : "non-seed");
       await showNode(outside.id);
-      for (const selector of ["#role-filter", "#component-filter", "#cluster-filter"]) {
+      for (const selector of ["#role-filter", "#component-filter", "#cluster-filter", "#depth-filter", "#seed-filter"]) {
         assert.equal(await page.locator(selector).inputValue(), "all");
       }
       assert.match(await page.locator("#search-message").innerText(), /фильтры сброшены/i);

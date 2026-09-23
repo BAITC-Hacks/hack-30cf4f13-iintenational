@@ -47,10 +47,12 @@
   const setMessage = (message, error=false) => {$("search-message").textContent=message;$("search-message").classList.toggle("error",error);$("gid").setAttribute("aria-invalid",String(error));};
   const pressed = (id,value) => $(id).setAttribute("aria-pressed",String(value));
   const option = (select,value,label) => {const el=document.createElement("option");el.value=value;el.textContent=label;select.append(el);};
-  const filterIds = ["role-filter","component-filter","cluster-filter"];
+  const filterIds = ["role-filter","component-filter","cluster-filter","depth-filter","seed-filter"];
   const matches = n => ($("role-filter").value==="all" || n.role===$("role-filter").value)
     && ($("component-filter").value==="all" || String(n.component)===$("component-filter").value)
-    && ($("cluster-filter").value==="all" || String(n.cluster)===$("cluster-filter").value);
+    && ($("cluster-filter").value==="all" || String(n.cluster)===$("cluster-filter").value)
+    && ($("depth-filter").value==="all" || ($("depth-filter").value==="unknown" ? n.depth == null : String(n.depth)===$("depth-filter").value))
+    && ($("seed-filter").value==="all" || ($("seed-filter").value==="unknown" ? n.seed == null : $("seed-filter").value==="seed" ? n.seed === true : n.seed === false));
 
   function renderQueue() {
     const pages=Math.max(1,Math.ceil(filtered.length/PAGE));
@@ -256,6 +258,8 @@
   Object.entries(roles).forEach(([value,r])=>option($("role-filter"),value,r.label));
   [...new Set(data.nodes.map(n=>n.component))].sort((a,b)=>a-b).forEach(value=>option($("component-filter"),value,`№ ${value} · ${fmt.format(data.nodes.filter(n=>n.component===value).length)} узлов`));
   data.clusters.forEach(c=>option($("cluster-filter"),c.id,`№ ${c.id} · ${fmt.format(c.size)} узлов`));
+  [...new Set(data.nodes.map(n=>n.depth).filter(v=>v!=null))].sort((a,b)=>a-b).forEach(value=>option($("depth-filter"),value,`${value}-е колено`));
+  if(data.nodes.some(n=>n.depth==null)) option($("depth-filter"),"unknown","Глубина неизвестна");
   $("role-glossary").innerHTML=Object.values(roles).map(r=>`<p>${dot(r.color)} <strong>${r.label}.</strong> ${r.text}</p>`).join("");
   $("search-form").addEventListener("submit",e=>{
     e.preventDefault();const input=$("gid").value.trim();

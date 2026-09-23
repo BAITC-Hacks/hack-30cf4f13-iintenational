@@ -113,6 +113,11 @@ Measure-Command { powershell -ExecutionPolicy Bypass -File .\run.ps1 }
 
 ## 4. Автоматические проверки
 
+Экран графа отдельно проверяет фильтры роли, компоненты, кластера, глубины
+обхода и seed-статуса, включая сброс и глобальный поиск по GID. Это позволяет
+отличать узлы границы `depth=4` от узлов с неизвестной глубиной и не смешивать
+seed с обычными участниками сети.
+
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 node scripts/check_graph_view.js
