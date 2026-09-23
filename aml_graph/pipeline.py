@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
 import time
 from pathlib import Path
 
@@ -75,27 +77,37 @@ def run_pipeline(data_dir: Path = DATA_DIR, output_dir: Path = OUTPUT_DIR) -> di
     nodes_roles = build_nodes_roles(frame)
     top_nodes = build_top_nodes(frame)
     validate_outputs(nodes_roles, clusters, top_nodes)
-    write_outputs(output_dir, nodes_roles, clusters, top_nodes)
-    write_graph_view(
-        output_dir / "graph_view.html", graph, frame,
-        clusters=clusters, top_nodes=top_nodes,
-        is_demo=demo_source_matches(data_dir),
-        period=f"{transactions['date'].min():%d.%m.%Y} — {transactions['date'].max():%d.%m.%Y}",
-    )
-    stage_times["exports_visualization"] = time.perf_counter() - marker
+    # Finish rendering and serializing the whole set before replacing any
+    # previous result. A missing UI asset or encoding/render error must not
+    # leave new CSVs beside an old graph and report.
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="pipeline-", dir=output_dir.parent) as temporary:
+        staging = Path(temporary)
+        write_outputs(staging, nodes_roles, clusters, top_nodes)
+        write_graph_view(
+            staging / "graph_view.html", graph, frame,
+            clusters=clusters, top_nodes=top_nodes,
+            is_demo=demo_source_matches(data_dir),
+            period=f"{transactions['date'].min():%d.%m.%Y} — {transactions['date'].max():%d.%m.%Y}",
+        )
+        stage_times["exports_visualization"] = time.perf_counter() - marker
 
-    elapsed = time.perf_counter() - started
-    report = {
-        "input": validation,
-        "candidates": candidates,
-        "role_distribution": role_distribution,
-        "n_clusters": int(len(clusters)),
-        "multi_seed_clusters": multi_seed_clusters,
-        "top_nodes": int(len(top_nodes)),
-        "stage_seconds": {key: round(value, 4) for key, value in stage_times.items()},
-        "total_seconds": round(elapsed, 4),
-    }
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "run_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        elapsed = time.perf_counter() - started
+        report = {
+            "input": validation,
+            "candidates": candidates,
+            "role_distribution": role_distribution,
+            "n_clusters": int(len(clusters)),
+            "multi_seed_clusters": multi_seed_clusters,
+            "top_nodes": int(len(top_nodes)),
+            "stage_seconds": {key: round(value, 4) for key, value in stage_times.items()},
+            "total_seconds": round(elapsed, 4),
+        }
+        (staging / "run_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for name in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv", "graph_view.html", "run_report.json"):
+            # Create files under the destination ACL instead of moving files
+            # out of an owner-only Windows temporary directory.
+            shutil.copyfile(staging / name, output_dir / name)
     print(f"[7–9] Выгрузки и экран готовы за {elapsed:.2f} с: {output_dir}")
     return report

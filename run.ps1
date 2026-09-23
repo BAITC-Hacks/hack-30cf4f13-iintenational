@@ -1,12 +1,14 @@
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $false
 $python = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
-if (-not (Test-Path -LiteralPath $python)) {
-    throw "Сначала выполните команды установки из README.md"
+if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+    throw "Missing .venv\Scripts\python.exe. Follow the installation steps in README.md."
 }
 Push-Location $PSScriptRoot
 try {
     & $python -X utf8 (Join-Path $PSScriptRoot "run_pipeline.py")
+    $pipelineExitCode = $LASTEXITCODE
 } finally {
     Pop-Location
 }
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if ($pipelineExitCode -ne 0) { exit $pipelineExitCode }

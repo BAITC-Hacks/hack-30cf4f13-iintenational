@@ -235,6 +235,28 @@ class InputValidationTests(unittest.TestCase):
                     run_pipeline(DATA_DIR, output)
             self.assertFalse(output.exists())
 
+    def test_view_build_failure_keeps_previous_complete_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "result"
+            output.mkdir()
+            names = ("nodes_roles.csv", "clusters.csv", "top_nodes.csv", "graph_view.html", "run_report.json")
+            previous = {name: f"previous {name}".encode() for name in names}
+            for name, value in previous.items():
+                (output / name).write_bytes(value)
+            with patch("aml_graph.pipeline.write_graph_view", side_effect=OSError("view build failed")):
+                with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(OSError, "view build failed"):
+                    run_pipeline(DATA_DIR, output)
+            for name in names:
+                self.assertTrue((output / name).read_bytes() == previous[name], f"Previous {name} was changed")
+
+    def test_view_build_failure_does_not_publish_new_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "result"
+            with patch("aml_graph.pipeline.write_graph_view", side_effect=OSError("view build failed")):
+                with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(OSError, "view build failed"):
+                    run_pipeline(DATA_DIR, output)
+            self.assertFalse(output.exists())
+
 
 class MetricAndRoleTests(unittest.TestCase):
     def row(self, **overrides: object) -> pd.Series:
@@ -322,6 +344,17 @@ class OutputReliabilityTests(unittest.TestCase):
         for filename in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv"):
             with self.subTest(filename=filename):
                 self.assertEqual((self.output_a / filename).read_bytes(), (self.output_b / filename).read_bytes())
+
+    def test_row_order_does_not_change_roles_clusters_or_ranking(self) -> None:
+        tables = (self.nodes, self.edges, self.transactions)
+        shuffled = tuple(table.sample(frac=1, random_state=7).reset_index(drop=True) for table in tables)
+        output = Path(self.temp.name) / "shuffled"
+        with patch("aml_graph.pipeline.load_data", return_value=shuffled):
+            with contextlib.redirect_stdout(io.StringIO()):
+                run_pipeline(DATA_DIR, output)
+        for filename in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv"):
+            with self.subTest(filename=filename):
+                self.assertEqual((self.output_a / filename).read_bytes(), (output / filename).read_bytes())
 
     def test_cluster_counts_and_internal_amounts_match_sources(self) -> None:
         joined = self.roles.merge(self.nodes, on="gid", validate="one_to_one")

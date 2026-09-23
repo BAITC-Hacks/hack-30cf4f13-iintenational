@@ -10,6 +10,7 @@ import datetime as dt
 import json
 import math
 import re
+import sys
 import zipfile
 from collections import Counter
 from decimal import Decimal, InvalidOperation
@@ -134,13 +135,21 @@ def _cell(value: Any, row: int, column: str) -> Any:
     _fail("Поддерживаются только плоские скалярные значения; вложенные объекты запрещены.", row=row, field=column)
 
 
-def _append(rows: list[dict], columns: list[str], values: list[Any]) -> None:
+def _append(rows: list[dict], columns: list[str], values: list[Any], decoded_bytes: int) -> int:
     number = len(rows) + 1
     if number > MAX_ROWS:
         _fail(f"Превышен предел {MAX_ROWS} строк.", row=number)
     if len(values) != len(columns):
         _fail("Количество значений не совпадает с заголовком таблицы.", row=number)
-    rows.append({name: _cell(value, number, name) for name, value in zip(columns, values)})
+    record = {name: _cell(value, number, name) for name, value in zip(columns, values)}
+    # Parquet metadata measures encoded pages: dictionary values can expand
+    # many times when materialized. Bound accumulated Python values as well.
+    # Conservatively count repeated scalars even if a reader shares them.
+    decoded_bytes += sys.getsizeof(record) + sum(sys.getsizeof(value) for value in record.values())
+    if decoded_bytes > MAX_UNPACKED_BYTES:
+        _fail("Превышен лимит объёма декодированной таблицы (100 MiB).", row=number)
+    rows.append(record)
+    return decoded_bytes
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict:
@@ -190,6 +199,7 @@ def _read(path: Path, filename: str, options: dict | None = None) -> tuple[list[
         _fail("Поддерживаются CSV, TSV, XLSX, JSON, JSONL и Parquet.")
     settings = _options(options, extension)
     rows: list[dict] = []
+    decoded_bytes = 0
     sheets: list[str] = []
     try:
         if path.stat().st_size > MAX_FILE_BYTES:
@@ -199,7 +209,7 @@ def _read(path: Path, filename: str, options: dict | None = None) -> tuple[list[
                 reader = csv.reader(stream, delimiter=settings["delimiter"], strict=True)
                 columns = _columns(next(reader, []))
                 for values in reader:
-                    _append(rows, columns, values)
+                    decoded_bytes = _append(rows, columns, values, decoded_bytes)
         elif extension in (".json", ".jsonl"):
             with path.open("r", encoding=settings["encoding"]) as stream:
                 if extension == ".json":
@@ -219,7 +229,7 @@ def _read(path: Path, filename: str, options: dict | None = None) -> tuple[list[
                 _fail("Каждая строка JSON должна быть плоским объектом.")
             columns = _columns(list(dict.fromkeys(key for row in documents for key in row)))
             for document in documents:
-                _append(rows, columns, [document.get(name) for name in columns])
+                decoded_bytes = _append(rows, columns, [document.get(name) for name in columns], decoded_bytes)
         elif extension == ".parquet":
             # Own the descriptor even when the ParquetFile constructor fails.
             with path.open("rb") as parquet_stream:
@@ -232,9 +242,9 @@ def _read(path: Path, filename: str, options: dict | None = None) -> tuple[list[
                     if unpacked > MAX_UNPACKED_BYTES:
                         _fail("Распакованный Parquet превышает 100 MiB.")
                     columns = _columns(parquet.schema_arrow.names)
-                    for batch in parquet.iter_batches(batch_size=1024):
+                    for batch in parquet.iter_batches(batch_size=64):
                         for document in batch.to_pylist():
-                            _append(rows, columns, [document[name] for name in columns])
+                            decoded_bytes = _append(rows, columns, [document[name] for name in columns], decoded_bytes)
                 finally:
                     parquet.close()
         else:
@@ -269,7 +279,7 @@ def _read(path: Path, filename: str, options: dict | None = None) -> tuple[list[
                                 _fail("Число XLSX длиннее 15 значащих цифр неоднозначно; храните идентификаторы и точные суммы как текст.",
                                       row=len(rows) + 1, field=columns[len(values)])
                             values.append(value)
-                        _append(rows, columns, values)
+                        decoded_bytes = _append(rows, columns, values, decoded_bytes)
                 finally:
                     workbook.close()
     except ImportFailure:

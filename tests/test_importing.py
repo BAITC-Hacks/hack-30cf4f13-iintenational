@@ -310,6 +310,19 @@ class ImportingTests(unittest.TestCase):
         with patch("workbench.importing.MAX_ROWS", 2):
             self.assert_failure(lambda: inspect_file(path, path.name))
 
+    def test_dictionary_encoded_parquet_cannot_bypass_decoded_size_limit(self):
+        import pyarrow.parquet as pq
+
+        path = self.directory / "dictionary.parquet"
+        pd.DataFrame({"payload": ["x" * 1024] * 32}).to_parquet(path, index=False)
+        with pq.ParquetFile(path) as parquet:
+            self.assertLess(parquet.metadata.row_group(0).total_byte_size, 4096)
+        with patch("workbench.importing.MAX_UNPACKED_BYTES", 4096):
+            error = self.assert_failure(lambda: inspect_file(path, path.name))
+        self.assertIn("декодированной таблицы", str(error))
+        # The failed decoder must release its descriptor on Windows, too.
+        path.rename(self.directory / "released.parquet")
+
     def test_empty_malformed_and_duplicate_headers(self):
         for contents in ("", "src,dst,amount\n", "src,src,amount\na,b,1\n",
                          "src,dst,amount\na,b,1,extra\n", 'src,dst,amount\n"unterminated,b,1\n'):

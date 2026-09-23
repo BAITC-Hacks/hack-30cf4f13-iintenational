@@ -10,7 +10,7 @@
   const fields = {nodes:["gid","depth","is_seed"],edges:["src","dst","amount","n_tx","depth","currency"],transactions:["src","dst","amount","date","currency"]};
   const fieldNames = {gid:"Идентификатор узла *",src:"Отправитель *",dst:"Получатель *",amount:"Сумма *",n_tx:"Количество переводов",depth:"Глубина обхода",is_seed:"Стартовый узел (seed)",date:"Дата перевода",currency:"Валюта в строке"};
   const aliases = {gid:["gid","id","node_id"],src:["src","src_gid","source","from","sender"],dst:["dst","dst_gid","target","to","recipient"],amount:["amount","sum_kzt","amount_kzt","sum","value"],n_tx:["n_tx","count","transaction_count"],depth:["depth"],is_seed:["is_seed","seed"],date:["date","tx_date","timestamp","transaction_date"],currency:["currency"]};
-  const state = {session:null,sources:[],activeId:null,busy:false,poll:null,frameUrl:null,validated:null,runs:[]};
+  const state = {session:null,sources:[],activeId:null,busy:false,poll:null,pollVersion:0,frameUrl:null,validated:null,runs:[]};
   const selected = (a,b) => a===b?" selected":"";
   const option = (value,label,current) => `<option value="${esc(value)}"${selected(value,current)}>${esc(label)}</option>`;
 
@@ -41,12 +41,14 @@
   function step(name) {
     for(const id of ["files","mapping","review","result"]){$("step-"+id).hidden=id!==name;const item=document.querySelector(`[data-step="${id}"]`);if(id===name)item.setAttribute("aria-current","step");else item.removeAttribute("aria-current");}
     $("main").scrollIntoView({block:"start"});
+    const heading=$("step-"+name).querySelector("h2");heading.tabIndex=-1;heading.focus({preventScroll:true});
   }
   function invalidate() {state.validated=null;}
   function renderFiles() {
     $("file-list").innerHTML=state.sources.map((s,i)=>`<div class="file-row"><div><strong>${esc(s.filename)}</strong><small>${fmt.format(s.size)} байт · ${s.info?`${fmt.format(s.info.rows)} строк · ${s.info.columns.length} колонок`:"Настройте чтение на следующем шаге"}</small></div><label><span class="sr-only">Тип таблицы</span><select data-kind="${i}" aria-label="Тип таблицы ${esc(s.filename)}">${Object.entries(kinds).map(([v,l])=>option(v,l,s.kind)).join("")}</select></label><button data-remove="${i}" aria-label="Убрать ${esc(s.filename)} из набора">Убрать</button></div>`).join("");
     $("files-summary").textContent=state.sources.length?`Файлов в наборе: ${state.sources.length} из 3`:"Файлы ещё не выбраны";
     $("to-mapping").disabled=state.busy || !state.sources.length;
+    $("file-list").querySelectorAll("select,button").forEach(el=>el.disabled=state.busy);
   }
   function suggestMapping(source) {
     const columns=source.info?.columns || [];
@@ -100,29 +102,31 @@
   function runTitle(run) {return (run.sources || run.report?.sources)?.map(s=>s.filename).join(" + ") || `Расчёт ${run.id.slice(0,8)}`;}
   function renderHistory() {
     $("run-history").innerHTML=state.runs.map(run=>`<button class="history-item" data-history="${esc(run.id)}" aria-current="${state.activeId===run.id}"><strong>${esc(runTitle(run))}</strong><small>${esc(statuses[run.status] || run.status)} · ${esc(new Date(run.created_at).toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}))}</small></button>`).join("") || '<p class="muted">Здесь появятся ваши расчёты. Они сохраняются после закрытия страницы.</p>';
+    $("run-history").querySelectorAll("button").forEach(el=>el.disabled=state.busy);
   }
   async function refreshHistory() {state.runs=(await json("/api/runs")).runs;renderHistory();}
-  function stopPoll() {clearTimeout(state.poll);state.poll=null;}
+  function stopPoll() {clearTimeout(state.poll);state.poll=null;state.pollVersion+=1;}
   function clearFrame() {$("result-frame").removeAttribute("src");$("result-frame").style.removeProperty("height");if(state.frameUrl)URL.revokeObjectURL(state.frameUrl);state.frameUrl=null;$("graph-container").hidden=true;}
   async function showRun(id) {
-    stopPoll();state.activeId=id;step("result");clearFrame();$("result-summary").textContent="";$("downloads").textContent="";$("run-status").textContent="Загрузка результата…";renderHistory();await pollRun(id);
+    stopPoll();state.activeId=id;$("result-title").textContent="Анализ набора";step("result");clearFrame();$("result-summary").textContent="";$("downloads").textContent="";$("run-status").textContent="Загрузка результата…";renderHistory();await pollRun(id,state.pollVersion);
   }
-  async function pollRun(id) {
+  async function pollRun(id,version) {
+    const current=()=>state.activeId===id&&state.pollVersion===version;
     try {
-      const run=await json(`/api/runs/${id}`);if(state.activeId!==id)return;
+      const run=await json(`/api/runs/${id}`);if(!current())return;
       $("result-title").textContent=runTitle(run);$("run-status").textContent=statuses[run.status] || run.status;
-      if(["queued","running"].includes(run.status)) {$("run-status").textContent+=". Можно оставить страницу открытой или вернуться к расчёту в истории.";state.poll=setTimeout(()=>pollRun(id),1000);return;}
-      await refreshHistory();if(state.activeId!==id)return;
+      if(["queued","running"].includes(run.status)) {$("run-status").textContent+=". Можно оставить страницу открытой или вернуться к расчёту в истории.";state.poll=setTimeout(()=>pollRun(id,version),1000);return;}
+      await refreshHistory();if(!current())return;
       if(run.status!=="completed") {$("result-summary").textContent=typeof run.error==="string"?run.error:"Расчёт не завершён. Исправьте данные или повторите импорт. Предыдущие результаты сохранены.";if(run.issues?.length){const error=new Error(run.error);error.issues=run.issues;showError(error);}return;}
       $("result-summary").innerHTML=summary(run.report,true);
       $("downloads").innerHTML=(run.artifacts||[]).map(name=>`<button data-download="${esc(name)}">↓ ${esc(name)}</button>`).join("");
-      const html=await (await api(`/api/runs/${id}/artifacts/graph_view.html`)).text();if(state.activeId!==id)return;
+      const html=await (await api(`/api/runs/${id}/artifacts/graph_view.html`)).text();if(!current())return;
       // Только наш сгенерированный артефакт; произвольный пользовательский HTML не принимается.
       // Отдельный CSP nonce разрешает его скрипт внутри opaque-origin sandbox, не inline-код мастера.
       const parsed=new DOMParser().parseFromString(html,"text/html");parsed.querySelectorAll("script").forEach(script=>script.setAttribute("nonce",state.session.csp_nonce));
       state.frameUrl=URL.createObjectURL(new Blob(["<!doctype html>\n"+parsed.documentElement.outerHTML],{type:"text/html;charset=utf-8"}));
       $("result-frame").src=state.frameUrl;$("graph-container").hidden=false;
-    } catch(error) {if(state.activeId===id){$("run-status").textContent="Не удалось загрузить результат. Откройте расчёт из истории повторно.";showError(error);}}
+    } catch(error) {if(current()){$("run-status").textContent="Не удалось загрузить результат. Откройте расчёт из истории повторно.";showError(error);}}
   }
   $("file-input").addEventListener("change",()=>{
     const files=[...$("file-input").files];$("file-input").value="";
@@ -139,7 +143,7 @@
       }
     });
   });
-  $("file-list").addEventListener("change",event=>{const el=event.target.closest("[data-kind]");if(!el)return;const s=state.sources[Number(el.dataset.kind)];s.kind=el.value;suggestMapping(s);invalidate();});
+  $("file-list").addEventListener("change",event=>{const el=event.target.closest("[data-kind]");if(!el||state.busy)return;const s=state.sources[Number(el.dataset.kind)];s.kind=el.value;suggestMapping(s);invalidate();});
   $("file-list").addEventListener("click",event=>{const el=event.target.closest("[data-remove]");if(!el||state.busy)return;state.sources.splice(Number(el.dataset.remove),1);invalidate();renderFiles();$("activity").textContent="Файл убран из текущего набора. Локальная копия остаётся в хранилище.";});
   $("source-settings").addEventListener("change",event=>{
     const el=event.target,card=el.closest("[data-source]");if(!card)return;const source=state.sources[Number(card.dataset.source)];

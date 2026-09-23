@@ -104,7 +104,9 @@ def _generic_graph(dataset: Dataset) -> tuple[nx.DiGraph, dict[int, str], dict[i
     display = {index: value for value, index in internal.items()}
     facts: dict[int, dict] = {}
     graph = nx.DiGraph()
-    for row in dataset.nodes.itertuples(index=False):
+    # Centrality sampling and Louvain consume NetworkX insertion order, too.
+    # Stable IDs alone are insufficient when the uploaded nodes are shuffled.
+    for row in dataset.nodes.sort_values("gid").itertuples(index=False):
         gid = internal[str(row.gid)]
         depth = None if pd.isna(row.depth) else int(row.depth)
         seed = None if pd.isna(row.is_seed) else bool(row.is_seed)

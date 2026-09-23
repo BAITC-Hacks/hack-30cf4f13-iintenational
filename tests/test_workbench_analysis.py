@@ -266,6 +266,26 @@ class WorkbenchAnalysisTests(unittest.TestCase):
         for filename in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv"):
             self.assertEqual((baseline / filename).read_bytes(), (output / filename).read_bytes())
 
+    def test_generic_csv_results_do_not_depend_on_input_row_order(self):
+        sources = []
+        shuffled = []
+        for kind in ("nodes", "edges", "transactions"):
+            table = pd.read_parquet(DATA_DIR / f"{kind}.parquet")
+            mapping = {"amount" if field == "sum_kzt" else field: field for field in table.columns}
+            sources.append({"kind": kind, "path": DATA_DIR / f"{kind}.parquet",
+                            "filename": f"{kind}.parquet", "mapping": mapping})
+            path = self.directory / f"shuffled_{kind}.parquet"
+            table.sample(frac=1, random_state=7).to_parquet(path, index=False)
+            shuffled.append({"kind": kind, "path": path, "filename": path.name,
+                             "mapping": mapping})
+        config = {"profile": "generic", "coverage": "outward", "max_depth": 4}
+        _, _, original_output = self.analyze(sources, config, name="original_order")
+        _, _, shuffled_output = self.analyze(shuffled, config, name="shuffled_order")
+        for filename in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv"):
+            with self.subTest(filename=filename):
+                self.assertEqual((original_output / filename).read_bytes(),
+                                 (shuffled_output / filename).read_bytes())
+
     def test_strict_profile_rejects_small_generic_dataset(self):
         with self.assertRaises(ImportFailure):
             validate_request([self.transactions()], {"profile": "hackalem"})

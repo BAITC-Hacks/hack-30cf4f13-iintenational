@@ -34,6 +34,9 @@ function startServer(storage) {
     "server = create_server(port=0, storage=Path(sys.argv[1]))", "print(json.dumps({'port': server.server_address[1]}), flush=True)",
     "try:", "    server.serve_forever(poll_interval=0.1)", "finally:", "    server.server_close()"].join("\n");
   const child = spawn(pythonPath(), ["-X", "utf8", "-u", "-c", code, storage], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  // `exit` may precede stdio closure; keep a promise from creation so teardown
+  // cannot miss the event and remove storage while the child still holds it.
+  const closed = new Promise(resolve => child.once("close", resolve));
   let stdout = "", stderr = "";
   child.stderr.on("data", value => { stderr += value.toString(); });
   return new Promise((resolve, reject) => {
@@ -47,7 +50,7 @@ function startServer(storage) {
         const { port } = JSON.parse(stdout.split(/\r?\n/, 1)[0]);
         assert(Number.isInteger(port) && port > 0);
         clearTimeout(timeout);
-        resolve({ child, origin: `http://127.0.0.1:${port}`, stderr: () => stderr });
+        resolve({ child, closed, origin: `http://127.0.0.1:${port}`, stderr: () => stderr });
       } catch (error) { clearTimeout(timeout); child.kill(); reject(error); }
     });
   });
@@ -63,6 +66,10 @@ const cp1251 = value => Buffer.from([...value].map(char => {
   if (code === 0x451) return 0xb8;
   throw new Error("Test CP1251 encoder supports ASCII and Russian letters only");
 }));
+const within = (promise, message) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error(message)), 10000);
+  promise.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+});
 
 async function main() {
   fs.mkdirSync(artifacts, { recursive: true });
@@ -216,8 +223,33 @@ async function main() {
       assert.equal(sidebar, "rgb(241, 241, 243)");
     });
 
+    await check("Partial multi-file upload keeps source controls locked", async () => {
+      let release, uploading;
+      const held = new Promise(resolve => { release = resolve; });
+      const secondUpload = new Promise(resolve => { uploading = resolve; });
+      let uploads = 0;
+      const handler = async route => {
+        uploads += 1;
+        if (uploads === 2) { uploading(); await held; }
+        await route.continue();
+      };
+      await page.route("**/api/uploads", handler);
+      try {
+        await page.locator("#file-input").setInputFiles([file("nodes.csv", "gid\nA\nB\n"), file("edges.csv", "src,dst,amount\nA,B,1\n")]);
+        await within(secondUpload, "The second upload never started");
+        assert(await page.locator("[data-kind]").isDisabled(), "A newly rendered source selector must stay locked until the batch finishes");
+        assert(await page.locator("[data-remove]").isDisabled());
+      } finally {
+        release();
+        await idle();
+        await page.unroute("**/api/uploads", handler);
+      }
+      await page.locator("#new-import").click();
+    });
+
     await check("CSV mapping error is actionable and keeps focus", async () => {
       await load([file("transfers.csv", "src,dst,amount,date,currency\n001,A-2,12.50,2026-09-01,USD\nA-2,B,3.25,2026-09-02,USD\n001,B,0.25,2026-09-02,USD\n")]);
+      assert.equal(await page.evaluate(() => document.activeElement.id), "mapping-title", "A wizard step must move keyboard focus into the visible section");
       assert.equal(await source(0).locator('[data-field="src"]').inputValue(), "src");
       assert.match(await source(0).locator(".preview-table").innerText(), /001/);
       await source(0).locator('[data-field="amount"]').selectOption("");
@@ -284,12 +316,33 @@ async function main() {
       await verifyReachableDetails("desktop", "workbench-result-details.png");
     });
 
+    await check("Unknown seed and depth filters do not imply false or zero metadata", async () => {
+      await graph().locator("#depth-filter").selectOption("unknown");
+      await graph().locator("#seed-filter").selectOption("unknown");
+      assert.equal(await graph().locator("#node-list [data-node-id]").count(), 3);
+      await graph().locator("#seed-filter").selectOption("non-seed");
+      assert.equal(await graph().locator("#node-list [data-node-id]").count(), 0);
+      // Empty results resize the embedded frame asynchronously. Keyboard
+      // activation checks recovery without racing a moving pointer target.
+      await graph().locator("#reset-filters").focus();
+      await graph().locator("#reset-filters").press("Enter");
+      assert.equal(await graph().locator("#node-list [data-node-id]").count(), 3);
+    });
+
     await check("Iframe height follows its content and rejects messages from another source", async () => {
-      const before = await page.locator("#result-frame").evaluate(frame => frame.style.height);
+      // Compare in one browser task: legitimate ResizeObserver messages from
+      // filter changes can otherwise arrive between two asynchronous reads.
+      const { before, after } = await page.evaluate(() => {
+        const frame = document.querySelector("#result-frame");
+        const before = frame.style.height;
+        window.dispatchEvent(new MessageEvent("message", {
+          source: window, data: { type: "potoki:height", height: 19000 },
+        }));
+        return { before, after: frame.style.height };
+      });
       assert(parseInt(before, 10) > 320);
-      await page.evaluate(() => window.postMessage({ type: "potoki:height", height: 19000 }, "*"));
+      assert.equal(after, before);
       await noOverflow();
-      assert.equal(await page.locator("#result-frame").evaluate(frame => frame.style.height), before);
     });
 
     await check("All six downloads match the saved analysis artifacts", async () => {
@@ -311,6 +364,39 @@ async function main() {
       await idle();
       assert.equal(await page.locator("#run-status").innerText(), "Готово");
       await search("001");
+    });
+
+    await check("A stale poll cannot overwrite a reopened result for the same run", async () => {
+      let release, polling;
+      const held = new Promise(resolve => { release = resolve; });
+      const waiting = new Promise(resolve => { polling = resolve; });
+      let calls = 0;
+      const endpoint = `${server.origin}/api/runs/${firstRun}`;
+      const handler = async route => {
+        calls += 1;
+        if (calls > 2) { await route.continue(); return; }
+        if (calls === 2) { polling(); await held; }
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: firstRun, status: "running", sources: [] }) });
+      };
+      await page.route(endpoint, handler);
+      try {
+        await page.locator(`[data-history="${firstRun}"]`).click();
+        await idle();
+        await within(waiting, "The background result poll never started");
+        await page.locator("#new-import").click();
+        await page.locator(`[data-history="${firstRun}"]`).click();
+        await graph().locator("#node-list [data-node-id]").first().waitFor({ state: "visible" });
+        await idle();
+        assert.equal(await page.locator("#run-status").innerText(), "Готово");
+        const response = page.waitForResponse(endpoint);
+        release();
+        await (await response).finished();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await page.locator("#run-status").innerText(), "Готово", "An older poll belongs to the abandoned view, even when the run ID is the same");
+      } finally {
+        release();
+        await page.unroute(endpoint, handler);
+      }
     });
 
     await check("375px workbench and viewer have no page overflow; keyboard focus works", async () => {
@@ -454,15 +540,34 @@ async function main() {
     if (page) await page.screenshot({ path: path.join(artifacts, "workbench-failure.png"), fullPage: true }).catch(() => {});
     throw error;
   } finally {
-    if (browser) await browser.close();
-    if (server?.child && server.child.exitCode === null) {
-      await new Promise(resolve => { server.child.once("exit", resolve); server.child.kill(); setTimeout(resolve, 3000); });
+    let cleanupError;
+    try {
+      if (browser) await browser.close();
+    } catch (error) { cleanupError = error; }
+    // Browser shutdown errors must not leave the independent server running.
+    try {
+      if (server?.child) {
+        if (server.child.exitCode === null && server.child.signalCode === null) server.child.kill();
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("Local test server did not close; its temporary files were retained")), 10000);
+          server.closed.then(() => { clearTimeout(timer); resolve(); });
+        });
+      }
+    } catch (error) { cleanupError ??= error; }
+    if (!cleanupError) {
+      try {
+        // Only remove the test-owned directory after both processes closed.
+        assert(path.dirname(temporary) === path.resolve(os.tmpdir()) && path.basename(temporary).startsWith("workbench-ui-"));
+        await fs.promises.rm(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
+      } catch (error) { cleanupError = error; }
+    }
+    if (cleanupError) {
+      report.status = "failed";
+      report.cleanupError = cleanupError.stack || cleanupError.message;
     }
     report.finishedAt = new Date().toISOString();
     fs.writeFileSync(path.join(artifacts, "workbench-ui-test-report.json"), JSON.stringify(report, null, 2) + "\n");
-    // Only remove the test-owned directory that this process just created.
-    assert(path.dirname(temporary) === path.resolve(os.tmpdir()) && path.basename(temporary).startsWith("workbench-ui-"));
-    fs.rmSync(temporary, { recursive: true, force: true, maxRetries:5, retryDelay:200 });
+    if (cleanupError && !report.error) throw cleanupError;
   }
 }
 

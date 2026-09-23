@@ -5,3 +5,4 @@ __pycache__/
 node_modules/
 artifacts/
 workbench_data/
+/pipeline-*/

@@ -3,9 +3,10 @@ param(
     [string]$DataDir = ""
 )
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $false
 $appPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
-if (-not (Test-Path -LiteralPath $appPython)) {
-    throw "Сначала выполните команды установки из README.md"
+if (-not (Test-Path -LiteralPath $appPython -PathType Leaf)) {
+    throw "Missing .venv\Scripts\python.exe. Follow the installation steps in README.md."
 }
 $appArguments = @("-X", "utf8", (Join-Path $PSScriptRoot "run_app.py"), "--port", "$Port")
 if ($DataDir) {
@@ -14,7 +15,8 @@ if ($DataDir) {
 Push-Location $PSScriptRoot
 try {
     & $appPython @appArguments
+    $appExitCode = $LASTEXITCODE
 } finally {
     Pop-Location
 }
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if ($appExitCode -ne 0) { exit $appExitCode }
