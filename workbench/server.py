@@ -11,6 +11,8 @@ import os
 import re
 import secrets
 import socket
+import stat
+import sys
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -98,6 +100,35 @@ class RequestError(Exception):
         self.status = status
 
 
+def _make_storage_directory(path: Path, *, parents: bool = False, exist_ok: bool = False) -> None:
+    # On Windows, Python treats 0700 specially: it replaces inherited ACLs
+    # with creator/admin access. A helper process can then lock out the actual
+    # desktop user. Use the parent's Windows ACL; retain owner-only POSIX mode.
+    mode = 0o777 if sys.platform == "win32" else 0o700
+    access_message = (
+        f"Нет доступа к каталогу данных '{path}'. Проверьте права вашей учётной "
+        "записи Windows/ОС (раздел «Если не запускается» в README.md). "
+        "Не удаляйте хранилище: в нём могут быть загрузки и история."
+    )
+    try:
+        path.mkdir(parents=parents, exist_ok=exist_ok, mode=mode)
+    except PermissionError as exc:
+        raise ValueError(access_message) from exc
+    except FileExistsError as exc:
+        # Path.mkdir(exist_ok=True) can surface WinError 183 when is_dir()
+        # cannot inspect an existing directory because its ACL denies access.
+        try:
+            existing = path.stat()
+        except PermissionError as denied:
+            raise ValueError(access_message) from denied
+        if not stat.S_ISDIR(existing.st_mode):
+            raise ValueError(
+                f"Путь данных '{path}' уже существует, но это не каталог. "
+                "Файл не изменён; выберите другой --data-dir или сохраните его отдельно."
+            ) from exc
+        raise
+
+
 class Storage:
     """Единственный владелец хранилища и состояния задания внутри процесса."""
 
@@ -105,13 +136,13 @@ class Storage:
         self.root = root.absolute()
         if self.root.is_symlink():
             raise ValueError("Каталог данных не должен быть символической ссылкой")
-        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _make_storage_directory(self.root, parents=True, exist_ok=True)
         self.upload_dir = self.root / "uploads"
         self.run_dir = self.root / "runs"
         for directory in (self.upload_dir, self.run_dir):
             if directory.is_symlink():
                 raise ValueError("Каталоги приложения не должны быть символическими ссылками")
-            directory.mkdir(exist_ok=True, mode=0o700)
+            _make_storage_directory(directory, exist_ok=True)
         self.lock = threading.RLock()
         self.closed = False
         self.active_id: str | None = None
@@ -290,8 +321,8 @@ class Storage:
                 raise RequestError(409, "Другой анализ уже выполняется. Дождитесь его завершения")
             run_id = uuid.uuid4().hex
             directory = self.run_dir / run_id
-            directory.mkdir(mode=0o700)
-            (directory / "artifacts").mkdir(mode=0o700)
+            _make_storage_directory(directory)
+            _make_storage_directory(directory / "artifacts")
             state = {"id": run_id, "status": "queued", "created_at": _now(), "finished_at": None, "artifacts": [], "request": payload}
             self._save(state)
             self.runs[run_id] = state
