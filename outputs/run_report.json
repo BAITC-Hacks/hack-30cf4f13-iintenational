@@ -1,0 +1,130 @@
+{
+  "input": {
+    "n_nodes": 2248,
+    "n_edges": 3119,
+    "n_transactions": 4840,
+    "n_seed": 81,
+    "sum_kzt": 365890012,
+    "depth_counts": {
+      "0": 81,
+      "1": 472,
+      "2": 462,
+      "3": 789,
+      "4": 444
+    },
+    "component_sizes": [
+      1877,
+      270,
+      17,
+      13,
+      11,
+      10,
+      9,
+      8,
+      7,
+      6,
+      5,
+      4,
+      3,
+      3,
+      3,
+      2
+    ],
+    "depth4_without_out": 444,
+    "seed_without_out": 31,
+    "seed_absent_from_edges": 0,
+    "seed_recipient_only": 31,
+    "seed_with_outgoing": 50,
+    "expected_depth_counts": {
+      "0": 81,
+      "1": 472,
+      "2": 462,
+      "3": 789,
+      "4": 444
+    },
+    "expected_small_component_range": [
+      2,
+      17
+    ],
+    "expected_total_kzt": 365890012,
+    "demo_control_match": {
+      "depth_counts": true,
+      "component_sizes": true,
+      "sum_kzt": true
+    }
+  },
+  "candidates": {
+    "collectors_8_24": 3,
+    "collector_examples": [
+      {
+        "gid": 754,
+        "unique_payers": 24
+      },
+      {
+        "gid": 755,
+        "unique_payers": 12
+      },
+      {
+        "gid": 1316,
+        "unique_payers": 8
+      }
+    ],
+    "fans_60_116": 3,
+    "fan_examples": [
+      {
+        "gid": 82,
+        "unique_recipients": 116
+      },
+      {
+        "gid": 47,
+        "unique_recipients": 60
+      },
+      {
+        "gid": 83,
+        "unique_recipients": 60
+      }
+    ],
+    "pass_through_08_12": 72,
+    "transit_examples": [
+      {
+        "gid": 529,
+        "pass_through_ratio": 1.0
+      },
+      {
+        "gid": 530,
+        "pass_through_ratio": 1.0
+      },
+      {
+        "gid": 531,
+        "pass_through_ratio": 1.0
+      },
+      {
+        "gid": 532,
+        "pass_through_ratio": 1.0
+      },
+      {
+        "gid": 538,
+        "pass_through_ratio": 1.0
+      }
+    ]
+  },
+  "role_distribution": {
+    "consolidator": 1,
+    "coordinator": 102,
+    "distributor": 18,
+    "peripheral": 1739,
+    "terminal": 316,
+    "transit": 72
+  },
+  "n_clusters": 89,
+  "multi_seed_clusters": 21,
+  "top_nodes": 30,
+  "stage_seconds": {
+    "load_validate_graph": 0.1106,
+    "metrics": 0.1992,
+    "roles": 0.074,
+    "clustering_priority": 0.1926,
+    "exports_visualization": 0.0906
+  },
+  "total_seconds": 0.6672
+}
