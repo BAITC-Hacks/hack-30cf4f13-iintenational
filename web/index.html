@@ -26,7 +26,7 @@
       <div><span>Узлы сети</span><strong id="total-nodes">—</strong><small id="seed-count"></small></div>
       <div><span>Направленные связи</span><strong id="total-edges">—</strong><small>плательщик → получатель</small></div>
       <div><span>Независимые компоненты</span><strong id="total-components">—</strong><small id="cluster-count"></small></div>
-      <div><span>Оборот по рёбрам</span><strong id="total-amount">—</strong><small>KZT за период выгрузки</small></div>
+      <div><span>Оборот по рёбрам</span><strong id="total-amount">—</strong><small id="currency-caption">KZT за период выгрузки</small></div>
     </section>
     <section class="filters" aria-label="Поиск и фильтры">
       <form id="search-form" role="search" novalidate><label for="gid" class="sr-only">Поиск по gid</label><span class="search-icon" aria-hidden="true">⌕</span><input id="gid" type="text" inputmode="numeric" autocomplete="off" placeholder="Найти по GID" aria-describedby="search-message"><button id="find" type="submit">Найти</button></form>
@@ -51,7 +51,7 @@
           <div id="graph-empty" class="empty-state" hidden>Нет узлов по выбранным фильтрам.<br>Измените фильтр или нажмите «Сбросить».</div>
           <div id="zoom-controls" class="zoom-controls" hidden><button id="zoom-out" class="square-button" aria-label="Уменьшить масштаб">−</button><span id="zoom-value">100%</span><button id="zoom-in" class="square-button" aria-label="Увеличить масштаб">+</button><button id="fit" class="plain-button">Вместить</button></div>
         </div>
-        <div id="connections-view" class="connections-view" hidden><div class="table-wrap"><table><caption class="sr-only">Все наблюдаемые связи выбранного узла</caption><thead><tr><th scope="col">Узел</th><th scope="col">Направление</th><th scope="col">Сумма, KZT</th><th scope="col">Переводов</th></tr></thead><tbody id="connection-rows"></tbody></table></div><p id="connections-empty" class="empty-state" hidden>Наблюдаемых связей нет.</p><div class="pagination"><button id="edges-prev" class="square-button" aria-label="Предыдущая страница связей">←</button><span id="edges-page"></span><button id="edges-next" class="square-button" aria-label="Следующая страница связей">→</button></div></div>
+        <div id="connections-view" class="connections-view" hidden><div class="table-wrap"><table><caption class="sr-only">Все наблюдаемые связи выбранного узла</caption><thead><tr><th scope="col">Узел</th><th scope="col">Направление</th><th scope="col" id="amount-column">Сумма, KZT</th><th scope="col">Переводов</th></tr></thead><tbody id="connection-rows"></tbody></table></div><p id="connections-empty" class="empty-state" hidden>Наблюдаемых связей нет.</p><div class="pagination"><button id="edges-prev" class="square-button" aria-label="Предыдущая страница связей">←</button><span id="edges-page"></span><button id="edges-next" class="square-button" aria-label="Следующая страница связей">→</button></div></div>
         <div class="graph-caption"><span id="graph-caption"></span><span class="direction-key"><i></i> направление перевода</span></div>
         <div id="legend" class="legend" aria-label="Обозначения на схеме"></div>
       </section>
@@ -66,7 +66,7 @@
       <li><strong>Откройте узел.</strong> Слева на схеме — его плательщики, справа — получатели. На узком экране они расположены сверху и снизу. Стрелка показывает направление денег. Нажмите на соседний GID, чтобы перейти к нему.</li>
       <li><strong>Проверьте все связи.</strong> Схема показывает до 12 крупнейших связей каждого направления, на узком экране — до четырёх. Таблица содержит все связи с точными суммами и числом переводов.</li>
       <li><strong>Посмотрите контекст.</strong> Режим «Вся сеть» учитывает фильтры. Используйте «Вместить», кнопки масштаба или стрелки клавиатуры. Расстояния между узлами — только способ раскладки, не мера риска.</li>
-      <li><strong>Учитывайте границу.</strong> У узлов 4-го колена исходящие переводы отсутствуют из-за способа выгрузки. Это не доказывает удержание денег.</li>
+      <li id="boundary-help"><strong>Учитывайте границу.</strong> У узлов 4-го колена исходящие переводы отсутствуют из-за способа выгрузки. Это не доказывает удержание денег.</li>
     </ol>
     <p class="muted"><strong>Seed</strong> — стартовый узел обхода. <strong>Компонента</strong> — часть сети без связей с остальными компонентами. <strong>Кластер</strong> — сообщество, найденное внутри компоненты.</p>
     <h3>Обозначения ролей</h3><div id="role-glossary"></div>

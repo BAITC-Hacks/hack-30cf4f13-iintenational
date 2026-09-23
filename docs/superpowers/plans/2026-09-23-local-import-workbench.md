@@ -1,12 +1,18 @@
 # Local Import Workbench Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Локальное приложение с мастером импорта и историей для обоих согласованных вариантов входа.
 
 **Architecture:** Адаптеры создают единый Dataset, аналитическое ядро строит независимые артефакты, HTTP-сервис управляет загрузками и очередью. Интерфейс не содержит расчётных правил. Строгий HackAlem и пользовательский профиль отделены.
 
 **Tech Stack:** Python 3.12+ (не 3.14.1), pandas, pyarrow, NetworkX, openpyxl, стандартный HTTP-сервер на loopback; HTML/CSS/JavaScript, Playwright.
+
+**Execution note:** дополнительный subagent-driven-development отсутствует в этой
+среде. Реализация разделена штатным делегированием на импорт, аналитику, сервер
+и UI; выполнены перекрёстное ревью и общие регрессионные прогоны. Модули входят
+в один интеграционный коммит после проверки. Фактический протокол —
+`docs/workbench-verification.md`.
 
 ## Global Constraints
 
@@ -43,12 +49,12 @@ coverage: unknown|outward, max_depth: int|null}`.
   возвращает columns, preview (до 5 строк), rows, sheets, warnings.
 - `prepare_dataset(sources: list[dict], config: dict) -> Dataset`.
 
-- [ ] Написать тест одинаковой сети во всех форматах, сохранив ID `001` и `A-2`.
-- [ ] Зафиксировать отказы: дробный/пустой ID, недостаточная точность суммы,
+- [x] Написать тест одинаковой сети во всех форматах, сохранив ID `001` и `A-2`.
+- [x] Зафиксировать отказы: дробный/пустой ID, недостаточная точность суммы,
   формулы XLSX, смешанные валюты, пустой граф, неизвестный конец ребра, лимиты.
-- [ ] Реализовать чтение ограниченных таблиц и строгую Decimal-нормализацию.
-- [ ] Проверить: `.venv\Scripts\python.exe -m unittest discover -s tests -p test_importing.py -v`.
-- [ ] Закоммитить модуль и тесты после интеграционного ревью.
+- [x] Реализовать чтение ограниченных таблиц и строгую Decimal-нормализацию.
+- [x] Проверить: `.venv\Scripts\python.exe -m unittest discover -s tests -p test_importing.py -v`.
+- [x] Закоммитить модуль и тесты после интеграционного ревью.
 
 Контрольный пример для всех адаптеров:
 
@@ -69,13 +75,13 @@ assert dataset.nodes.is_seed.isna().all()
 - `write_graph_view` получает дополнительные metadata, display_ids и download_frames,
   сохраняя прежние аргументы и старые результаты.
 
-- [ ] Написать тест generic из одного файла и из трёх согласованных таблиц.
-- [ ] Зафиксировать отсутствие terminal/transit при неизвестной полноте.
-- [ ] Повторно использовать сборку метрик и компонентную кластеризацию через
+- [x] Написать тест generic из одного файла и из трёх согласованных таблиц.
+- [x] Зафиксировать отсутствие terminal/transit при неизвестной полноте.
+- [x] Повторно использовать сборку метрик и компонентную кластеризацию через
   внутреннее стабильное отображение строковых ID; не менять исходные ID экспорта.
-- [ ] Сохранить report.json, result.json, три CSV и graph_view.html; report содержит
+- [x] Сохранить report.json, result.json, три CSV и graph_view.html; report содержит
   версии правил, ограничения, параметры и хеши файлов.
-- [ ] Проверить: `.venv\Scripts\python.exe -m unittest discover -s tests -p test_workbench_analysis.py -v`.
+- [x] Проверить: `.venv\Scripts\python.exe -m unittest discover -s tests -p test_workbench_analysis.py -v`.
 
 ```python
 assert report["counts"]["nodes"] == 3
@@ -97,10 +103,10 @@ POST /api/inspect ({upload_id, options}), POST /api/preview и /api/runs
 GET /api/runs/{id}, GET /api/runs/{id}/artifacts/{name}. Все API после session
 требуют X-Session-Token; записи требуют same-origin. Имена артефактов ограничены.
 
-- [ ] Написать HTTP-тесты Host/Origin/token/traversal/размеров и сохранения истории.
-- [ ] Реализовать случайные upload/run ID, атомарные состояния и worker с одной задачей.
-- [ ] Незавершённые запуски после рестарта отмечать interrupted; ошибки не публикуют артефакты.
-- [ ] Проверить: `.venv\Scripts\python.exe -m unittest discover -s tests -p test_workbench_server.py -v`.
+- [x] Написать HTTP-тесты Host/Origin/token/traversal/размеров и сохранения истории.
+- [x] Реализовать случайные upload/run ID, атомарные состояния и worker с одной задачей.
+- [x] Незавершённые запуски после рестарта отмечать interrupted; ошибки не публикуют артефакты.
+- [x] Проверить: `.venv\Scripts\python.exe -m unittest discover -s tests -p test_workbench_server.py -v`.
 
 ```python
 assert response.status == 403  # POST без сессионного токена
@@ -112,18 +118,18 @@ assert run_status in {"queued", "running", "completed", "failed", "interrupted"}
 
 **Files:** create `workbench/web/index.html`, `workbench/web/app.js`, `workbench/web/styles.css`, `scripts/test_workbench_ui.js`; modify `aml_graph/visualization.py`, `web/app.js`, `web/index.html`.
 
-- [ ] Реализовать четыре шага с настоящими label, прогрессом и live-ошибками.
-- [ ] Предлагать mapping по известным именам колонок; изменения отменяют preview.
-- [ ] Через authenticated fetch открывать результат в sandboxed iframe Blob;
+- [x] Реализовать четыре шага с настоящими label, прогрессом и live-ошибками.
+- [x] Предлагать mapping по известным именам колонок; изменения отменяют preview.
+- [x] Через authenticated fetch открывать результат в sandboxed iframe Blob;
   скачивание CSV также через fetch, без токенов в URL.
-- [ ] Отображать строковые ID, валюту и неизвестные seed/depth корректно;
+- [x] Отображать строковые ID, валюту и неизвестные seed/depth корректно;
   старый offline payload сохраняет поведение по умолчанию.
-- [ ] Playwright проходит импорт CSV, исправление mapping, запуск, граф, CSV,
+- [x] Playwright проходит импорт CSV, исправление mapping, запуск, граф, CSV,
   историю после reload, проверку узкой ширины и ошибки сервера.
 
 ```javascript
 assert.equal(await page.locator('#run-status').textContent(), 'Готово');
-assert.equal(await page.locator('#run-history [data-run-id]').count(), 1);
+assert.equal(await page.locator('#run-history [data-history]').count(), 1);
 assert(await page.locator('#result-frame').isVisible());
 ```
 
@@ -131,9 +137,9 @@ assert(await page.locator('#result-frame').isVisible());
 
 **Files:** modify `README.md`, `docs/testing.md`, `.gitignore`, `requirements.txt`, `package.json`; create `docs/workbench.md`, `docs/workbench-verification.md`.
 
-- [ ] Зафиксировать зависимости и добавить workbench_data/ в gitignore.
-- [ ] Запустить весь unittest, старые 17 UI-сценариев и новый мастер.
-- [ ] Повторить HackAlem и сравнить три CSV побайтово с текущими результатами.
-- [ ] Проверить отображение ошибок, локальную приватность и весь контракт спецификации.
-- [ ] Записать фактические результаты, ограничения и команду `powershell -ExecutionPolicy Bypass -File .\run_app.ps1`.
-- [ ] Закоммитить проверенный результат; не публиковать реальные загрузки и не выполнять push без отдельной просьбы.
+- [x] Зафиксировать зависимости и добавить workbench_data/ в gitignore.
+- [x] Запустить весь unittest, старые 17 UI-сценариев и новый мастер.
+- [x] Повторить HackAlem и сравнить три CSV побайтово с текущими результатами.
+- [x] Проверить отображение ошибок, локальную приватность и весь контракт спецификации.
+- [x] Записать фактические результаты, ограничения и команду `powershell -ExecutionPolicy Bypass -File .\run_app.ps1`.
+- [x] Закоммитить проверенный результат; не публиковать реальные загрузки и не выполнять push без отдельной просьбы.

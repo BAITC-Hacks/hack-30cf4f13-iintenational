@@ -66,7 +66,26 @@ def _script_json(value: object) -> str:
 
 def write_graph_view(output_path: Path, graph: nx.DiGraph, frame: pd.DataFrame, *,
                      clusters: pd.DataFrame | None = None, top_nodes: pd.DataFrame | None = None,
-                     is_demo: bool = False, period: str = "Период не указан") -> None:
+                     is_demo: bool = False, period: str = "Период не указан",
+                     display_ids: dict[int, str] | None = None,
+                     metadata: dict | None = None,
+                     node_overrides: dict[int, dict] | None = None,
+                     download_frames: dict[str, pd.DataFrame] | None = None) -> None:
+    metadata = metadata or {}
+    generic = metadata.get("profile") == "generic"
+    display_ids = display_ids or {}
+    node_overrides = node_overrides or {}
+    def identifier(gid: int) -> str:
+        return str(display_ids.get(int(gid), gid))
+    def nullable(value):
+        return None if pd.isna(value) else value
+    def integer(value):
+        return None if nullable(value) is None else int(value)
+    def money(value):
+        return str(int(value)) if generic else int(value)
+    def count(value):
+        value = integer(value)
+        return str(value) if generic and value is not None else value
     positions = _positions(frame)
     clusters = build_clusters_table(graph, frame) if clusters is None else clusters
     top_nodes = build_top_nodes(frame) if top_nodes is None else top_nodes
@@ -76,27 +95,32 @@ def write_graph_view(output_path: Path, graph: nx.DiGraph, frame: pd.DataFrame, 
         gid = int(row["gid"])
         nodes.append({
             # int64 хранится в JS строкой: точность поиска сохраняется выше 2**53.
-            "id": str(gid), "x": positions[gid][0], "y": positions[gid][1],
+            "id": identifier(gid), "sortKey": str(gid), "x": positions[gid][0], "y": positions[gid][1],
             "role": str(row["role"]), "roleScore": float(row["role_score"]),
             "priority": float(row["priority_score"]), "cluster": int(row["cluster_id"]),
-            "component": int(row["component_id"]), "depth": int(row["depth"]),
-            "seed": bool(row["is_seed"]), "inDegree": int(row["in_degree"]),
-            "outDegree": int(row["out_degree"]), "sumIn": int(row["sum_in"]),
-            "sumOut": int(row["sum_out"]), "evidence": str(row["evidence"]),
+            "component": int(row["component_id"]), "depth": integer(row["depth"]),
+            "seed": None if nullable(row["is_seed"]) is None else bool(row["is_seed"]),
+            "inDegree": int(row["in_degree"]),
+            "outDegree": int(row["out_degree"]), "sumIn": money(row["sum_in"]),
+            "sumOut": money(row["sum_out"]), "evidence": str(row["evidence"]),
             "why": str(why_by_gid.get(gid, "")),
             "centrality": float(max(row["pagerank_component_pct"], row["betweenness_component_pct"])),
             "turnoverPercentile": float(row["turnover_global_pct"]),
+            **node_overrides.get(gid, {}),
         })
-    edges = [{"s": str(src), "t": str(dst), "v": int(data["sum_kzt"]), "count": int(data["n_tx"])}
+    edges = [{"s": identifier(src), "t": identifier(dst), "v": money(data["sum_kzt"]), "count": count(data["n_tx"])}
              for src, dst, data in graph.edges(data=True)]
-    csv_frames = {"nodes_roles.csv": build_nodes_roles(frame), "clusters.csv": clusters, "top_nodes.csv": top_nodes}
+    csv_frames = download_frames if download_frames is not None else {
+        "nodes_roles.csv": build_nodes_roles(frame), "clusters.csv": clusters, "top_nodes.csv": top_nodes}
     payload = {
         "nodes": nodes, "edges": edges,
-        "clusters": [{"id": int(row.cluster_id), "size": int(row.n_nodes), "seeds": int(row.n_seed),
-                      "amount": int(row.sum_kzt_internal), "hypothesis": str(row.hypothesis)}
+        "clusters": [{"id": int(row.cluster_id), "size": int(row.n_nodes), "seeds": integer(row.n_seed),
+                      "amount": money(row.sum_kzt_internal), "hypothesis": str(row.hypothesis)}
                      for row in clusters.itertuples(index=False)],
-        "meta": {"demo": is_demo, "period": period, "total": sum(edge["v"] for edge in edges),
-                 "components": int(frame["component_id"].nunique()), "seeds": int(frame["is_seed"].sum())},
+        "meta": {"demo": is_demo, "period": period, "total": money(sum(int(edge["v"]) for edge in edges)),
+                 "components": int(frame["component_id"].nunique()),
+                 "seeds": None if any(node["seed"] is None for node in nodes) else sum(node["seed"] for node in nodes),
+                 **metadata},
         "downloads": {name: table.to_csv(index=False, lineterminator="\n") for name, table in csv_frames.items()},
     }
     document = (ASSET_DIR / "index.html").read_text(encoding="utf-8")

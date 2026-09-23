@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Потоки — импорт и анализ</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Перейти к импорту</a>
+  <aside class="sidebar" aria-label="Рабочее пространство">
+    <a class="brand" href="/">Потоки<span>Транзакционная аналитика</span></a>
+    <button id="new-import" class="primary">＋ Новый анализ</button>
+    <div class="history-heading"><h2>История</h2><button id="refresh-history" class="icon" aria-label="Обновить историю">↻</button></div>
+    <nav id="run-history" aria-label="Предыдущие расчёты"><p class="muted">Загрузка истории…</p></nav>
+    <div class="local-note"><strong>На вашем компьютере</strong><p>Файлы обрабатываются локально. Копии и результаты сохраняются в папке приложения, без отправки в облако.</p></div>
+  </aside>
+  <main id="main" tabindex="-1">
+    <header class="page-heading"><div><p class="eyebrow">Рабочее пространство аналитика</p><h1>От таблицы к картине потоков</h1><p class="muted">Загрузите данные, проверьте поля и получите объяснимый результат.</p></div><span class="local-badge">Локальный режим</span></header>
+    <ol class="steps" aria-label="Этапы анализа"><li data-step="files" aria-current="step"><span>1</span> Файлы</li><li data-step="mapping"><span>2</span> Поля и условия</li><li data-step="review"><span>3</span> Проверка</li><li data-step="result"><span>4</span> Результат</li></ol>
+    <div id="error" class="error-box" role="alert" tabindex="-1" hidden></div>
+    <p id="activity" class="activity" role="status" aria-live="polite"></p>
+    <section id="step-files" class="panel" aria-labelledby="files-title">
+      <div class="section-heading"><p class="eyebrow">01 / Источники</p><h2 id="files-title">Начните с ваших файлов</h2><p>Одна таблица переводов — или отдельные таблицы узлов, связей и транзакций. Неизвестные поля можно оставить незаданными.</p></div>
+      <div class="upload-area"><span class="upload-symbol" aria-hidden="true">↑</span><label for="file-input">Выберите файлы для анализа</label><p>CSV · TSV · Excel (.xlsx) · JSON · JSONL · Parquet</p><input id="file-input" type="file" multiple accept=".csv,.tsv,.xlsx,.json,.jsonl,.parquet" aria-describedby="upload-limits"><small id="upload-limits">Подключение к локальному серверу…</small></div>
+      <div id="file-list" class="file-list"></div>
+      <div class="info-note"><strong>Что должно быть в таблице?</strong><p>Для переводов: отправитель, получатель и сумма. Для узлов: идентификатор. Для связей: отправитель, получатель и агрегированная сумма. Названия столбцов могут быть любыми — вы сопоставите их на следующем шаге.</p></div>
+      <div class="step-actions"><span id="files-summary" class="muted">Файлы ещё не выбраны</span><button id="to-mapping" class="primary" disabled>Настроить поля →</button></div>
+    </section>
+    <section id="step-mapping" hidden aria-labelledby="mapping-title">
+      <div class="section-heading"><p class="eyebrow">02 / Сопоставление</p><h2 id="mapping-title">Как читать эти данные</h2><p>Предложенные соответствия — подсказка по названию колонки. Проверьте их перед расчётом. Поля со звёздочкой обязательны.</p></div>
+      <div id="source-settings"></div>
+      <form id="config-form" class="panel" novalidate>
+        <h3>Условия анализа</h3>
+        <div class="form-grid">
+          <label>Профиль<select id="profile"><option value="generic">Пользовательский набор</option><option value="hackalem">HackAlem · строгая проверка ТЗ</option></select></label>
+          <label>Валюта всех сумм<input id="currency" value="KZT" maxlength="3" pattern="[A-Z]{3}" aria-describedby="currency-help"></label>
+          <label>Знаков после запятой<input id="decimals" type="number" value="0" min="0" max="6" step="1"></label>
+          <label>Узлов в приоритетном списке<input id="top-n" type="number" value="30" min="1" max="500" step="1"></label>
+          <label>Полнота наблюдений<select id="coverage"><option value="unknown">Неизвестна</option><option value="outward">Известен исходящий обход</option></select></label>
+          <label>Предельная глубина обхода<input id="max-depth" type="number" min="0" max="1000" step="1" disabled placeholder="Не задана"></label>
+        </div>
+        <p id="currency-help" class="muted">Суммы в файлах — в основных единицах выбранной валюты: 12.50 означает 12,50, а не 1250. Конвертации валют нет. Для дробных сумм укажите достаточное число знаков.</p>
+        <div id="profile-note" class="info-note">Если полнота наблюдений неизвестна, система не делает выводов об удержании или транзите денег. Seed и глубина не восстанавливаются по догадке.</div>
+      </form>
+      <div class="step-actions"><button id="back-files" class="secondary">← Файлы</button><button id="validate" class="primary">Проверить данные →</button></div>
+    </section>
+    <section id="step-review" class="panel" hidden aria-labelledby="review-title">
+      <div class="section-heading"><p class="eyebrow">03 / Перед запуском</p><h2 id="review-title">Проверьте границы анализа</h2><p>Расчёт использует только переданные данные. Роли и кластеры — гипотезы для проверки, а не вывод о нарушении.</p></div>
+      <div id="review-summary"></div>
+      <div class="step-actions"><button id="back-mapping" class="secondary">← Изменить настройки</button><button id="start-run" class="primary">Запустить анализ</button></div>
+    </section>
+    <section id="step-result" hidden aria-labelledby="result-title">
+      <div class="panel"><div class="section-heading"><p class="eyebrow">04 / Результат</p><h2 id="result-title">Анализ набора</h2><p id="run-status" role="status" aria-live="polite"></p></div><div id="result-summary"></div><div id="downloads" class="downloads" aria-label="Файлы результата"></div></div>
+      <div id="graph-container" class="graph-container" hidden><div class="graph-title"><h3>Исследование сети</h3><p class="muted">Поиск по GID, направление переводов, роли и кластеры</p></div><iframe id="result-frame" title="Интерактивный граф результатов" sandbox="allow-scripts allow-downloads allow-forms"></iframe></div>
+    </section>
+    <footer>Объяснимые правила · Явные ограничения · Воспроизводимые результаты</footer>
+  </main>
+</body>
+</html>

@@ -19,10 +19,10 @@ def build_nodes_roles(frame: pd.DataFrame) -> pd.DataFrame:
     return result.sort_values("gid").reset_index(drop=True)
 
 
-def build_top_nodes(frame: pd.DataFrame) -> pd.DataFrame:
+def build_top_nodes(frame: pd.DataFrame, *, top_n: int = TOP_N) -> pd.DataFrame:
     ranked = frame.sort_values(
         ["priority_score", "role_score", "gid"], ascending=[False, False, True]
-    ).head(TOP_N).copy()
+    ).head(top_n).copy()
     ranked.insert(0, "rank", range(1, len(ranked) + 1))
     centrality = ranked[["betweenness_component_pct", "pagerank_component_pct"]].max(axis=1)
     ranked["why"] = [

@@ -135,6 +135,34 @@ class StandaloneViewTests(unittest.TestCase):
         self.assertEqual(csv_nodes["gid"].tolist(), [str(gid) for gid in gids])
 
 
+class GenericViewTests(unittest.TestCase):
+    def test_generic_ids_money_counts_and_unknown_facts_are_lossless(self) -> None:
+        graph = nx.DiGraph()
+        graph.add_node(0, depth=0, is_seed=False)
+        graph.add_node(1, depth=1, is_seed=False)
+        graph.add_edge(0, 1, sum_kzt=9007199254740993, n_tx=9007199254740993)
+        frame = explained_frame(graph)
+        clusters = build_clusters_table(graph, frame)
+        clusters["n_seed"] = pd.array([None] * len(clusters), dtype="Int64")
+        external = {0: "001", 1: '</script><img src=x onerror=alert(1)>'}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "generic.html"
+            write_graph_view(path, graph, frame, clusters=clusters, display_ids=external,
+                             metadata={"profile": "generic", "currency": "USD", "moneyScale": 2},
+                             node_overrides={gid: {"depth": None, "seed": None, "boundary": None} for gid in graph})
+            document = path.read_text(encoding="utf-8")
+        payload = extract_payload(document)
+        self.assertEqual([node["id"] for node in payload["nodes"]], list(external.values()))
+        self.assertTrue(all(node["depth"] is None and node["seed"] is None for node in payload["nodes"]))
+        self.assertIsNone(payload["meta"]["seeds"])
+        self.assertTrue(all(cluster["seeds"] is None for cluster in payload["clusters"]))
+        self.assertEqual(payload["edges"][0]["v"], "9007199254740993")
+        self.assertEqual(payload["edges"][0]["count"], "9007199254740993")
+        self.assertEqual(payload["meta"]["total"], "9007199254740993")
+        self.assertNotIn('<img src=x', document)
+        self.assertEqual(len(re.findall(r"<script\b", document)), 2)
+
+
 class DemoManifestTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()

@@ -23,9 +23,25 @@ def _clip(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
-def _assign_one(row: pd.Series) -> tuple[str, float, str]:
+def _format_amount(value: int, decimals: int) -> str:
+    if decimals == 0:
+        return f"{value:,}"
+    whole, fraction = divmod(value, 10 ** decimals)
+    return f"{whole:,}.{fraction:0{decimals}d}"
+
+
+def _assign_one(
+    row: pd.Series, *, coverage: str = "outward", max_depth: int | None = 4,
+    currency: str = "KZT", decimals: int = 0,
+) -> tuple[str, float, str]:
     centrality_pct = max(float(row["betweenness_component_pct"]), float(row["pagerank_component_pct"]))
-    depth = int(row["depth"])
+    depth = None if pd.isna(row["depth"]) else int(row["depth"])
+    seed = None if pd.isna(row["is_seed"]) else bool(row["is_seed"])
+    boundary = coverage == "outward" and max_depth is not None and depth == max_depth
+    flow_observed = (
+        coverage == "outward" and max_depth is not None
+        and depth is not None and depth < max_depth and seed is False
+    )
     in_degree = int(row["in_degree"])
     out_degree = int(row["out_degree"])
     ratio = float(row["pass_through_ratio"]) if not pd.isna(row["pass_through_ratio"]) else math.nan
@@ -49,7 +65,7 @@ def _assign_one(row: pd.Series) -> tuple[str, float, str]:
         score = 0.55 + 0.45 * strength
         evidence = (
             f"Признаки распределения: {out_degree} уникальных получателей "
-            f"(порог ≥{DISTRIBUTOR_MIN_RECIPIENTS}), исходящий поток {int(row['sum_out']):,} KZT."
+            f"(порог ≥{DISTRIBUTOR_MIN_RECIPIENTS}), исходящий поток {_format_amount(int(row['sum_out']), decimals)} {currency}."
         )
         return "distributor", _clip(score), evidence
 
@@ -58,13 +74,12 @@ def _assign_one(row: pd.Series) -> tuple[str, float, str]:
         score = 0.55 + 0.45 * strength
         evidence = (
             f"Признаки консолидации: {in_degree} уникальных плательщиков "
-            f"(порог ≥{CONSOLIDATOR_MIN_PAYERS}), входящий поток {int(row['sum_in']):,} KZT."
+            f"(порог ≥{CONSOLIDATOR_MIN_PAYERS}), входящий поток {_format_amount(int(row['sum_in']), decimals)} {currency}."
         )
         return "consolidator", _clip(score), evidence
 
     if (
-        depth < 4
-        and not bool(row["is_seed"])
+        flow_observed
         and in_degree >= 1
         and out_degree >= 1
         and TRANSIT_RATIO_LOW <= ratio <= TRANSIT_RATIO_HIGH
@@ -77,11 +92,10 @@ def _assign_one(row: pd.Series) -> tuple[str, float, str]:
         )
         return "transit", _clip(score), evidence
 
-    # depth=4 исключён: отсутствие исходящих там вызвано границей обхода.
-    # seed исключён: его входящий поток системно неполон.
+    # Объявленная граница исключена: отсутствие исходящих вызвано обходом.
+    # В объявленном исходящем обходе seed исключён: его вход системно неполон.
     if (
-        depth < 4
-        and not bool(row["is_seed"])
+        flow_observed
         and in_degree >= 1
         and float(row["retention_ratio"]) >= 0.8
         and (out_degree == 0 or ratio <= 0.2)
@@ -89,29 +103,40 @@ def _assign_one(row: pd.Series) -> tuple[str, float, str]:
         score = 0.65 + 0.25 * _clip(float(row["retention_ratio"])) + 0.10 * float(row["turnover_component_pct"])
         evidence = (
             f"Гипотеза терминального поведения: depth={depth}, in={in_degree}, out={out_degree}, "
-            f"удержание наблюдаемого входа {float(row['retention_ratio']):.0%}; узел не на границе depth=4."
+            f"удержание наблюдаемого входа {float(row['retention_ratio']):.0%}; узел не на границе depth={max_depth}."
         )
         return "terminal", _clip(score), evidence
 
-    if bool(row["is_seed"]) and in_degree > 0 and out_degree == 0:
+    if seed is True and in_degree > 0 and out_degree == 0:
         return (
             "peripheral",
             0.32,
-            "Периферия: seed получает наблюдаемый вход, но его внешний входящий поток неполон; терминальность не оценивается.",
+            ("Периферия: seed получает наблюдаемый вход, но его внешний входящий поток неполон; терминальность не оценивается."
+             if coverage == "outward" else
+             "Периферия: seed получает наблюдаемый вход; полнота внешних потоков неизвестна, терминальность не оценивается."),
         )
 
-    if depth == 4 and out_degree == 0:
+    if boundary and out_degree == 0:
         return (
             "peripheral",
             0.30,
-            "Периферия: depth=4 — граница выгрузки; out=0 не трактуется как оседание средств.",
+            f"Периферия: depth={max_depth} — граница выгрузки; out=0 не трактуется как оседание средств.",
         )
 
-    if bool(row["is_seed"]) and out_degree == 0:
+    if seed is True and out_degree == 0:
         return (
             "peripheral",
             0.32,
-            "Периферия: seed без наблюдаемых исходящих; неполный входящий поток не позволяет вывод о балансе.",
+            ("Периферия: seed без наблюдаемых исходящих; неполный входящий поток не позволяет вывод о балансе."
+             if coverage == "outward" else
+             "Периферия: seed без наблюдаемых исходящих; полнота внешних потоков неизвестна, вывод о балансе недоступен."),
+        )
+
+    if not flow_observed and (coverage != "outward" or depth is None or seed is None):
+        return (
+            "peripheral", 0.35,
+            f"Периферия: структурные пороги не достигнуты; in={in_degree}, out={out_degree}. "
+            "Полнота наблюдений неизвестна; транзит и терминальность не оцениваются.",
         )
 
     return (
@@ -121,9 +146,15 @@ def _assign_one(row: pd.Series) -> tuple[str, float, str]:
     )
 
 
-def assign_roles(metrics: pd.DataFrame) -> pd.DataFrame:
+def assign_roles(
+    metrics: pd.DataFrame, *, coverage: str = "outward", max_depth: int | None = 4,
+    currency: str = "KZT", decimals: int = 0,
+) -> pd.DataFrame:
     result = metrics.copy()
-    assigned = result.apply(_assign_one, axis=1, result_type="expand")
+    assigned = result.apply(
+        lambda row: _assign_one(row, coverage=coverage, max_depth=max_depth, currency=currency, decimals=decimals),
+        axis=1, result_type="expand",
+    )
     assigned.columns = ["role", "role_score", "evidence"]
     result = pd.concat([result, assigned], axis=1)
     result["role_score"] = result["role_score"].astype(float).clip(0, 1)
@@ -134,7 +165,7 @@ def assign_roles(metrics: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def calculate_priority(frame: pd.DataFrame) -> pd.DataFrame:
+def calculate_priority(frame: pd.DataFrame, *, boundary_depth: int | None = 4) -> pd.DataFrame:
     result = frame.copy()
     centrality = result[["betweenness_component_pct", "pagerank_component_pct"]].max(axis=1)
     role_base = result["role"].map(ROLE_BASE_PRIORITY).astype(float)
@@ -144,9 +175,12 @@ def calculate_priority(frame: pd.DataFrame) -> pd.DataFrame:
         + 0.20 * centrality
         + 0.10 * result["turnover_global_pct"].astype(float)
     )
-    # Граница четвёртого колена не должна подниматься в топ только из-за
+    # Объявленная граница не должна подниматься в топ только из-за
     # искусственного нулевого out-degree.
-    boundary = (result["depth"] == 4) & (result["out_degree"] == 0)
+    boundary = (
+        (result["depth"] == boundary_depth) & (result["out_degree"] == 0)
+        if boundary_depth is not None else pd.Series(False, index=result.index)
+    ).fillna(False)
     score.loc[boundary] *= 0.85
     result["priority_score"] = score.clip(0, 1)
     return result

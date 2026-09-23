@@ -120,11 +120,11 @@
   "multi_seed_clusters": 21,
   "top_nodes": 30,
   "stage_seconds": {
-    "load_validate_graph": 0.1044,
-    "metrics": 0.1867,
-    "roles": 0.0736,
-    "clustering_priority": 0.1974,
-    "exports_visualization": 0.204
+    "load_validate_graph": 0.1186,
+    "metrics": 0.2073,
+    "roles": 0.0822,
+    "clustering_priority": 0.2297,
+    "exports_visualization": 0.2294
   },
-  "total_seconds": 0.7661
+  "total_seconds": 0.8674
 }

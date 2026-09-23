@@ -1,9 +1,10 @@
 {
   "name": "hackalem-graph-ui-checks",
   "private": true,
-  "description": "Local browser checks for the standalone graph viewer",
+  "description": "Local browser checks for the graph viewer and import workbench",
   "scripts": {
-    "test:ui": "node scripts/test_ui.js"
+    "test:ui": "node scripts/test_ui.js",
+    "test:workbench": "node scripts/test_workbench_ui.js"
   },
   "devDependencies": {
     "playwright": "1.62.1"

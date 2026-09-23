@@ -44,11 +44,11 @@ def detect_clusters(graph: nx.DiGraph) -> dict[int, int]:
     return cluster_by_gid
 
 
-def _hypothesis(group: pd.DataFrame) -> str:
+def _hypothesis(group: pd.DataFrame, *, boundary_depth: int | None = 4) -> str:
     counts = group["role"].value_counts().to_dict()
-    n_seed = int(group["is_seed"].sum())
+    n_seed = None if group["is_seed"].isna().any() else int(group["is_seed"].sum())
     notable = counts.get("coordinator", 0) + counts.get("consolidator", 0) + counts.get("distributor", 0)
-    if n_seed > 1 and notable:
+    if n_seed is not None and n_seed > 1 and notable:
         return "Гипотеза для проверки: связанное сообщество нескольких seed с выраженными узлами управления потоками."
     if counts.get("distributor", 0):
         return "Гипотеза для проверки: сообщество с признаками веерного распределения средств."
@@ -56,12 +56,14 @@ def _hypothesis(group: pd.DataFrame) -> str:
         return "Гипотеза для проверки: сообщество с признаками консолидации входящих потоков."
     if counts.get("transit", 0) >= max(2, len(group) // 5):
         return "Гипотеза для проверки: сообщество с заметной долей транзитных профилей."
-    if (group["depth"] == 4).mean() >= 0.5:
-        return "Гипотеза для проверки: пограничный фрагмент; выводы ограничены обрывом обхода на depth=4."
+    if boundary_depth is not None and (group["depth"] == boundary_depth).fillna(False).mean() >= 0.5:
+        return f"Гипотеза для проверки: пограничный фрагмент; выводы ограничены обрывом обхода на depth={boundary_depth}."
     return "Гипотеза для проверки: локальная группа связей без одного доминирующего структурного паттерна."
 
 
-def build_clusters_table(graph: nx.DiGraph, frame: pd.DataFrame) -> pd.DataFrame:
+def build_clusters_table(
+    graph: nx.DiGraph, frame: pd.DataFrame, *, boundary_depth: int | None = 4,
+) -> pd.DataFrame:
     cluster_by_gid = frame.set_index("gid")["cluster_id"].astype(int).to_dict()
     internal_sum: dict[int, int] = {int(value): 0 for value in frame["cluster_id"].unique()}
     for source, target, data in graph.edges(data=True):
@@ -79,11 +81,10 @@ def build_clusters_table(graph: nx.DiGraph, frame: pd.DataFrame) -> pd.DataFrame
             {
                 "cluster_id": int(cluster_id),
                 "n_nodes": int(len(group)),
-                "n_seed": int(group["is_seed"].sum()),
+                "n_seed": None if group["is_seed"].isna().any() else int(group["is_seed"].sum()),
                 "sum_kzt_internal": int(internal_sum[int(cluster_id)]),
                 "top_gids": ",".join(str(int(gid)) for gid in top["gid"]),
-                "hypothesis": _hypothesis(group),
+                "hypothesis": _hypothesis(group, boundary_depth=boundary_depth),
             }
         )
     return pd.DataFrame(rows)
-

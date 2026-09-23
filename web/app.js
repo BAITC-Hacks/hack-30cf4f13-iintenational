@@ -5,6 +5,14 @@
   const $ = id => document.getElementById(id);
   const fmt = new Intl.NumberFormat("ru-RU");
   const decimal = new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 1});
+  const generic = data.meta.profile === "generic", currency = data.meta.currency || "KZT";
+  const scale = data.meta.moneyScale || 0, divisor = 10n ** BigInt(scale);
+  // Денежные значения generic передаются строками целых minor units, без потери int64.
+  const money = value => {const n=BigInt(value);return fmt.format(n/divisor)+(scale?","+(n%divisor).toString().padStart(scale,"0"):"");};
+  const count = value => value == null ? "неизвестно" : fmt.format(typeof value === "string" ? BigInt(value) : value);
+  const boundary = n => generic ? n.boundary === true : n.depth === 4;
+  const amountDescending = (a,b) => BigInt(a.v)>BigInt(b.v)?-1:BigInt(a.v)<BigInt(b.v)?1:0;
+  const shortId = id => id.length>18?id.slice(0,15)+"…":id;
   const esc = value => String(value).replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
   const roles = {
     coordinator: {label:"Координатор", color:"#705483", text:"Гипотеза о структурно центральном узле сети."},
@@ -21,14 +29,14 @@
   const outgoing = new Map(data.nodes.map(n => [n.id,[]]));
   for (const edge of data.edges) {incoming.get(edge.t)?.push(edge);outgoing.get(edge.s)?.push(edge);}
   // GID остаётся строкой: int64 может быть больше Number.MAX_SAFE_INTEGER.
-  const ranked = [...data.nodes].sort((a,b) => b.priority-a.priority || b.roleScore-a.roleScore || (BigInt(a.id)<BigInt(b.id)?-1:BigInt(a.id)>BigInt(b.id)?1:0));
+  const ranked = [...data.nodes].sort((a,b) => b.priority-a.priority || b.roleScore-a.roleScore || (BigInt(a.sortKey ?? a.id)<BigInt(b.sortKey ?? b.id)?-1:BigInt(a.sortKey ?? a.id)>BigInt(b.sortKey ?? b.id)?1:0));
   const state = {selected:ranked[0]?.id || null, page:0, edgePage:0, scope:"node", view:"diagram", color:"role"};
   const PAGE = 8, EDGE_PAGE = 8;
   let filtered = ranked;
   let camera = {scale:1,x:0,y:0,fitScale:1};
   let visibleEdges = [], componentBoxes = [], canvasWidth = 1, canvasHeight = 1;
   const canvas = $("network"), ctx = canvas.getContext("2d");
-  const compactMoney = value => value >= 1e6 ? `${decimal.format(value/1e6)} млн` : value >= 1e3 ? `${decimal.format(value/1e3)} тыс.` : fmt.format(value);
+  const compactMoney = value => {const v=Number(value)/Number(divisor);return v>=1e6?`${decimal.format(v/1e6)} млн`:v>=1e3?`${decimal.format(v/1e3)} тыс.`:money(value);};
   const clusterColor = id => `hsl(${(id*137.508)%360}, 37%, 43%)`;
   const color = n => state.color === "cluster" ? clusterColor(n.cluster) : role(n).color;
   const dot = c => `<i class="role-dot" style="--role-color:${c}" aria-hidden="true"></i>`;
@@ -52,18 +60,18 @@
   function renderDetails() {
     const n=byId.get(state.selected);
     $("details-heading").textContent=n?`GID ${n.id}`:"Узел не выбран";
-    $("depth-badge").textContent=n?`${n.depth}-е колено`:"";
+    $("depth-badge").textContent=n?(n.depth==null?"Глубина неизвестна":`${n.depth}-е колено`):"";
     if(!n){$("details-content").innerHTML='<p class="empty-state">Измените фильтры, чтобы выбрать узел.</p>';return;}
     const c=clusterById.get(n.cluster);
     $("details-content").innerHTML=`
       <section class="detail-section"><span class="role-badge">${dot(role(n).color)}${esc(role(n).label)}</span>${n.seed?'<span class="seed-tag">seed</span>':""}<p>${esc(role(n).text)}</p>
         <div class="score-grid"><div><span class="detail-kicker">Приоритет проверки</span><strong class="detail-score">${decimal.format(n.priority*100)}<small> / 100</small></strong></div><div><span class="detail-kicker">Скор правила роли</span><strong class="detail-score">${decimal.format(n.roleScore*100)}<small> / 100</small></strong></div></div>
-        <p>Скоры — расчётные показатели, не вероятность нарушения.</p>${n.depth===4?'<p class="boundary-note"><strong>Граница выгрузки</strong><br>Исходящие связи 4-го колена не собраны. Нулевой out_degree не означает, что деньги остались здесь.</p>':""}
+        <p>Скоры — расчётные показатели, не вероятность нарушения.</p>${boundary(n)?`<p class="boundary-note"><strong>Граница выгрузки</strong><br>Исходящие связи ${esc(n.depth)}-го колена не собраны. Нулевой out_degree не означает, что деньги остались здесь.</p>`:generic&&data.meta.coverage==="unknown"?'<p class="boundary-note">Полнота наблюдения неизвестна. Отсутствие связей не означает отсутствие переводов.</p>':""}
       </section>
-      <section class="detail-section"><h3>Наблюдаемый поток</h3><div class="metric-grid"><div><span class="detail-kicker">Входящий, KZT</span><strong>${fmt.format(n.sumIn)}</strong></div><div><span class="detail-kicker">Исходящий, KZT</span><strong>${fmt.format(n.sumOut)}</strong></div><div><span class="detail-kicker">Плательщиков</span><strong>${fmt.format(n.inDegree)}</strong></div><div><span class="detail-kicker">Получателей</span><strong>${fmt.format(n.outDegree)}</strong></div></div>
-        <details><summary>Почему присвоена роль</summary><p>${esc(n.evidence)}</p></details><details><summary>Как рассчитан приоритет</summary><p>${esc(n.why || "Приоритет: 45% базового веса роли, 25% скора правила роли, 20% максимального перцентиля центральности в компоненте и 10% перцентиля оборота. Для границы 4-го колена итог умножается на 0,85.")}</p><p>Центральность в компоненте: ${decimal.format(n.centrality*100)}-й перцентиль. Оборот в сети: ${decimal.format(n.turnoverPercentile*100)}-й перцентиль.</p></details>
+      <section class="detail-section"><h3>Наблюдаемый поток</h3><div class="metric-grid"><div><span class="detail-kicker">Входящий, ${esc(currency)}</span><strong>${money(n.sumIn)}</strong></div><div><span class="detail-kicker">Исходящий, ${esc(currency)}</span><strong>${money(n.sumOut)}</strong></div><div><span class="detail-kicker">Плательщиков</span><strong>${fmt.format(n.inDegree)}</strong></div><div><span class="detail-kicker">Получателей</span><strong>${fmt.format(n.outDegree)}</strong></div></div>
+        <details><summary>Почему присвоена роль</summary><p>${esc(n.evidence)}</p></details><details><summary>Как рассчитан приоритет</summary><p>${esc(n.why || data.meta.priorityDescription || "Приоритет: 45% базового веса роли, 25% скора правила роли, 20% максимального перцентиля центральности в компоненте и 10% перцентиля оборота. Для подтверждённой границы обхода итог умножается на 0,85.")}</p><p>Центральность в компоненте: ${decimal.format(n.centrality*100)}-й перцентиль. Оборот в сети: ${decimal.format(n.turnoverPercentile*100)}-й перцентиль.</p></details>
       </section>
-      <section class="detail-section"><h3>Контекст сети</h3><p>Компонента ${n.component} · Кластер ${n.cluster}<br>${fmt.format(c?.size || 0)} узлов · ${fmt.format(c?.seeds || 0)} seed</p><p>${esc(c?.hypothesis || "Гипотеза о связанном сообществе узлов.")}</p><button class="cluster-link" id="show-cluster">Показать кластер ${n.cluster} ↗</button></section>`;
+      <section class="detail-section"><h3>Контекст сети</h3><p>Компонента ${n.component} · Кластер ${n.cluster}<br>${count(c?.size)} узлов · seed: ${count(c?.seeds)}</p><p>${esc(c?.hypothesis || "Гипотеза о связанном сообществе узлов.")}</p><button class="cluster-link" id="show-cluster">Показать кластер ${n.cluster} ↗</button></section>`;
     $("show-cluster").addEventListener("click",() => {filterIds.forEach(id => $(id).value="all");$("cluster-filter").value=String(n.cluster);applyFilters();setScope("all");});
   }
 
@@ -71,21 +79,21 @@
     if(!state.selected)return [];
     const ins=(incoming.get(state.selected)||[]).map(e => ({...e,neighbor:e.s,direction:"Входящий"}));
     const outs=(outgoing.get(state.selected)||[]).map(e => ({...e,neighbor:e.t,direction:"Исходящий"}));
-    return [...ins,...outs].sort((a,b) => b.v-a.v || a.neighbor.localeCompare(b.neighbor));
+    return [...ins,...outs].sort((a,b) => amountDescending(a,b) || a.neighbor.localeCompare(b.neighbor));
   }
 
   function renderTable() {
     const edges=nodeConnections(), pages=Math.max(1,Math.ceil(edges.length/EDGE_PAGE));
     state.edgePage=Math.min(state.edgePage,pages-1);
-    $("connection-rows").innerHTML=edges.slice(state.edgePage*EDGE_PAGE,(state.edgePage+1)*EDGE_PAGE).map(e => `<tr><td><button data-node-id="${esc(e.neighbor)}" aria-label="Открыть GID ${esc(e.neighbor)}">${esc(e.neighbor)}</button></td><td class="${e.direction==="Входящий"?"direction-in":"direction-out"}">${e.direction==="Входящий"?"↘":"↗"} ${e.direction}</td><td>${fmt.format(e.v)}</td><td>${fmt.format(e.count)}</td></tr>`).join("");
+    $("connection-rows").innerHTML=edges.slice(state.edgePage*EDGE_PAGE,(state.edgePage+1)*EDGE_PAGE).map(e => `<tr><td><button data-node-id="${esc(e.neighbor)}" aria-label="Открыть GID ${esc(e.neighbor)}">${esc(e.neighbor)}</button></td><td class="${e.direction==="Входящий"?"direction-in":"direction-out"}">${e.direction==="Входящий"?"↘":"↗"} ${e.direction}</td><td>${money(e.v)}</td><td>${count(e.count)}</td></tr>`).join("");
     $("connections-empty").hidden=edges.length>0;
     $("edges-page").textContent=edges.length?`${state.edgePage+1} / ${pages} · ${fmt.format(edges.length)} связей`:"0 связей";
     $("edges-prev").disabled=state.edgePage===0;$("edges-next").disabled=state.edgePage>=pages-1;
   }
 
   function svgNode(n,x,y,center=false,amount=null) {
-    const w=center?154:142,h=center?66:amount!==null?44:26,subtitle=center?role(n).label:amount!==null?`${compactMoney(amount)} KZT`:null;
-    return `<g class="svg-node" data-node-id="${esc(n.id)}" tabindex="0" role="button" aria-label="Открыть GID ${esc(n.id)}, ${esc(role(n).label)}"><title>GID ${esc(n.id)} · ${esc(role(n).label)}</title><rect x="${x-w/2}" y="${y-h/2}" width="${w}" height="${h}" rx="${center?8:5}" fill="${center?'#edf3ee':'#fff'}" stroke="${center?'#70907a':'#dce4dc'}"/><circle cx="${x-w/2+12}" cy="${subtitle?y-8:y}" r="3.5" fill="${color(n)}"/><text x="${x-w/2+22}" y="${subtitle?y-4:y+4}" fill="#25332e" font-size="${n.id.length>13?9:12}" font-weight="600">${esc(n.id)}</text>${subtitle?`<text x="${x}" y="${y+15}" text-anchor="middle" fill="#63716a" font-size="11">${esc(subtitle)}</text>`:""}</g>`;
+    const w=center?154:142,h=center?66:amount!==null?44:26,subtitle=center?role(n).label:amount!==null?`${compactMoney(amount)} ${currency}`:null;
+    return `<g class="svg-node" data-node-id="${esc(n.id)}" tabindex="0" role="button" aria-label="Открыть GID ${esc(n.id)}, ${esc(role(n).label)}"><title>GID ${esc(n.id)} · ${esc(role(n).label)}</title><rect x="${x-w/2}" y="${y-h/2}" width="${w}" height="${h}" rx="${center?8:5}" fill="${center?'#edf3ee':'#fff'}" stroke="${center?'#70907a':'#dce4dc'}"/><circle cx="${x-w/2+12}" cy="${subtitle?y-8:y}" r="3.5" fill="${color(n)}"/><text x="${x-w/2+22}" y="${subtitle?y-4:y+4}" fill="#25332e" font-size="${n.id.length>13?9:12}" font-weight="600">${esc(shortId(n.id))}</text>${subtitle?`<text x="${x}" y="${y+15}" text-anchor="middle" fill="#63716a" font-size="11">${esc(subtitle)}</text>`:""}</g>`;
   }
 
   const compactDiagram = () => $("stage").getBoundingClientRect().width < 520;
@@ -102,15 +110,15 @@
         nodes+=svgNode(byId.get(isIn?e.s:e.t),x,y,false,e.v);
       });
     }
-    return `${arrowDefinition}<text x="210" y="35" text-anchor="middle" fill="#63716a" font-size="13">Входящие · ${n.inDegree}</text><text x="210" y="397" text-anchor="middle" fill="#63716a" font-size="13">Исходящие · ${n.outDegree}</text>${paths}${nodes}${svgNode(n,210,285,true)}${!ins.length?'<text x="210" y="116" text-anchor="middle" fill="#63716a" font-size="12">Нет наблюдаемых связей</text>':""}${!outs.length?`<text x="210" y="469" text-anchor="middle" fill="#63716a" font-size="12">${n.depth===4?'Граница выгрузки':'Нет наблюдаемых связей'}</text>`:""}`;
+    return `${arrowDefinition}<text x="210" y="35" text-anchor="middle" fill="#63716a" font-size="13">Входящие · ${n.inDegree}</text><text x="210" y="397" text-anchor="middle" fill="#63716a" font-size="13">Исходящие · ${n.outDegree}</text>${paths}${nodes}${svgNode(n,210,285,true)}${!ins.length?'<text x="210" y="116" text-anchor="middle" fill="#63716a" font-size="12">Нет наблюдаемых связей</text>':""}${!outs.length?`<text x="210" y="469" text-anchor="middle" fill="#63716a" font-size="12">${boundary(n)?'Граница выгрузки':'Нет наблюдаемых связей'}</text>`:""}`;
   }
 
   function renderNeighborhood() {
     const n=byId.get(state.selected), svg=$("neighborhood");
     if(!n){svg.innerHTML="";return;}
     const compact=compactDiagram(),limit=neighborLimit();
-    const ins=[...(incoming.get(n.id)||[])].sort((a,b)=>b.v-a.v).slice(0,limit);
-    const outs=[...(outgoing.get(n.id)||[])].sort((a,b)=>b.v-a.v).slice(0,limit);
+    const ins=[...(incoming.get(n.id)||[])].sort(amountDescending).slice(0,limit);
+    const outs=[...(outgoing.get(n.id)||[])].sort(amountDescending).slice(0,limit);
     svg.setAttribute("viewBox",compact?"0 0 420 570":"0 0 800 480");
     svg.setAttribute("aria-label",`GID ${n.id}: ${n.inDegree} входящих и ${n.outDegree} исходящих связей. Полный список — в таблице связей.`);
     if(compact){svg.innerHTML=renderCompactNeighborhood(n,ins,outs);return;}
@@ -120,11 +128,11 @@
       edges.forEach((e,i) => {
         const y=yFor(i,edges.length),neighbor=byId.get(isIn?e.s:e.t);
         const start=isIn?211:477, end=isIn?323:589, sy=isIn?y:248,ey=isIn?248:y;
-        paths+=`<path d="M ${start} ${sy} C ${isIn?269:535} ${sy}, ${isIn?269:535} ${ey}, ${end} ${ey}" stroke="#a9baad" stroke-width="${1+Math.min(3,Math.log10(e.v+1)/3)}" opacity=".7" fill="none" marker-end="url(#arrow)"/><text x="${isIn?227:573}" y="${y-5}" text-anchor="${isIn?'start':'end'}" fill="#63716a" font-size="9">${compactMoney(e.v)}</text>`;
+        paths+=`<path d="M ${start} ${sy} C ${isIn?269:535} ${sy}, ${isIn?269:535} ${ey}, ${end} ${ey}" stroke="#a9baad" stroke-width="${1+Math.min(3,Math.log10(Number(e.v)+1)/3)}" opacity=".7" fill="none" marker-end="url(#arrow)"/><text x="${isIn?227:573}" y="${y-5}" text-anchor="${isIn?'start':'end'}" fill="#63716a" font-size="9">${compactMoney(e.v)}</text>`;
         if(neighbor)nodes+=svgNode(neighbor,isIn?140:660,y);
       });
     }
-    svg.innerHTML=`${arrowDefinition}<text x="140" y="35" text-anchor="middle" fill="#63716a" font-size="11">Входящие · ${fmt.format(n.inDegree)}</text><text x="660" y="35" text-anchor="middle" fill="#63716a" font-size="11">Исходящие · ${fmt.format(n.outDegree)}</text>${paths}${nodes}${svgNode(n,400,248,true)}${!ins.length?'<text x="140" y="252" text-anchor="middle" fill="#7c8780" font-size="11">Нет наблюдаемых связей</text>':""}${!outs.length?`<text x="660" y="252" text-anchor="middle" fill="#7c8780" font-size="11">${n.depth===4?'Граница выгрузки':'Нет наблюдаемых связей'}</text>`:""}`;
+    svg.innerHTML=`${arrowDefinition}<text x="140" y="35" text-anchor="middle" fill="#63716a" font-size="11">Входящие · ${fmt.format(n.inDegree)}</text><text x="660" y="35" text-anchor="middle" fill="#63716a" font-size="11">Исходящие · ${fmt.format(n.outDegree)}</text>${paths}${nodes}${svgNode(n,400,248,true)}${!ins.length?'<text x="140" y="252" text-anchor="middle" fill="#7c8780" font-size="11">Нет наблюдаемых связей</text>':""}${!outs.length?`<text x="660" y="252" text-anchor="middle" fill="#7c8780" font-size="11">${boundary(n)?'Граница выгрузки':'Нет наблюдаемых связей'}</text>`:""}`;
   }
 
   function renderLegend() {
@@ -221,7 +229,7 @@
       if(x<-10||x>canvasWidth+10||y<-10||y>canvasHeight+10)continue;
       ctx.fillStyle=color(n);ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
       if(n.id===state.selected){ctx.strokeStyle="#213e2e";ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,r+3,0,Math.PI*2);ctx.stroke();}
-      if(camera.scale>2||n.id===state.selected){ctx.font="10px Segoe UI, Arial";ctx.fillStyle="#25332e";ctx.fillText(n.id,x+r+5,y+3);}
+      if(camera.scale>2||n.id===state.selected){ctx.font="10px Segoe UI, Arial";ctx.fillStyle="#25332e";ctx.fillText(shortId(n.id),x+r+5,y+3);}
     }
     $("zoom-value").textContent=`${Math.round(camera.scale/camera.fitScale*100)}%`;
   }
@@ -232,11 +240,14 @@
 
   // Инициализация всех подписей и селектов — из фактической выгрузки.
   $("period").textContent=data.meta.period;
-  $("source-notice").querySelector("strong").textContent=data.meta.demo?"Демонстрационные данные":"Проверьте источник";
-  $("source-text").textContent=data.meta.demo?"Синтетический набор для проверки системы. Результаты не относятся к реальным людям и не подтверждают качество на исходной выгрузке.":"Результаты рассчитаны по локальной выгрузке. Происхождение и полноту данных необходимо проверить отдельно.";
+  $("source-notice").querySelector("strong").textContent=data.meta.demo?"Демонстрационные данные":generic?"Пользовательский набор":"Проверьте источник";
+  $("source-text").textContent=data.meta.notice || (data.meta.demo?"Синтетический набор для проверки системы. Результаты не относятся к реальным людям и не подтверждают качество на исходной выгрузке.":"Результаты рассчитаны по локальной выгрузке. Происхождение и полноту данных необходимо проверить отдельно.");
   $("total-nodes").textContent=fmt.format(data.nodes.length);$("total-edges").textContent=fmt.format(data.edges.length);
-  $("total-components").textContent=fmt.format(data.meta.components);$("total-amount").textContent=fmt.format(data.meta.total);
-  $("seed-count").textContent=`${fmt.format(data.meta.seeds)} стартовых узлов · seed`;
+  $("total-components").textContent=fmt.format(data.meta.components);$("total-amount").textContent=money(data.meta.total);
+  $("seed-count").textContent=data.meta.seeds==null?"Seed не указаны":`${fmt.format(data.meta.seeds)} стартовых узлов · seed`;
+  $("currency-caption").textContent=`${currency} за период выгрузки`;
+  $("amount-column").textContent=`Сумма, ${currency}`;
+  if(generic){$("gid").inputMode="text";$("boundary-help").textContent="Учитывайте полноту наблюдения. Граница обхода определяется только по явно заданным глубине и способу выгрузки. Неизвестные seed и глубина не считаются нулём.";}
   $("cluster-count").textContent=`${fmt.format(data.clusters.length)} кластеров внутри компонент`;
   Object.entries(roles).forEach(([value,r])=>option($("role-filter"),value,r.label));
   [...new Set(data.nodes.map(n=>n.component))].sort((a,b)=>a-b).forEach(value=>option($("component-filter"),value,`№ ${value} · ${fmt.format(data.nodes.filter(n=>n.component===value).length)} узлов`));
@@ -244,8 +255,8 @@
   $("role-glossary").innerHTML=Object.values(roles).map(r=>`<p>${dot(r.color)} <strong>${r.label}.</strong> ${r.text}</p>`).join("");
   $("search-form").addEventListener("submit",e=>{
     e.preventDefault();const input=$("gid").value.trim();
-    if(!/^-?\d+$/.test(input)){setMessage("Введите целочисленный GID из выгрузки, например из очереди проверки.",true);return;}
-    const id=BigInt(input).toString();
+    if(!input || (!generic&&!/^-?\d+$/.test(input))){setMessage(generic?"Введите идентификатор из выгрузки.":"Введите целочисленный GID из выгрузки, например из очереди проверки.",true);return;}
+    const id=generic?input:BigInt(input).toString();
     if(!byId.has(id)){setMessage(`GID ${input} не найден в этой выгрузке. Текущий узел сохранён.`,true);return;}
     selectNode(id);$("gid").value=id;
   });
@@ -286,4 +297,9 @@
     setMessage(`Подготовлен ${name}: полная выгрузка, фильтры экрана не применяются.`);
   });
   rebuildVisibleEdges();renderQueue();renderDetails();updateGraph();
+  // В локальном мастере iframe имеет opaque origin: передаём только высоту,
+  // без GID, сумм и других данных. Автономный просмотр остаётся независимым.
+  if(window.parent!==window)new ResizeObserver(()=>{
+    window.parent.postMessage({type:"potoki:height",height:Math.ceil(document.body.getBoundingClientRect().height)},"*");
+  }).observe(document.body);
 })();
